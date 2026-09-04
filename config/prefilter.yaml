@@ -1,7 +1,7 @@
 # Deterministic, free, runs before any model call. Kills most of the volume.
 #
 # Rule of thumb: only exclude what you are certain about. A false exclusion here
-# is invisible — it never reaches the classifier and never appears in a digest.
+# is invisible, it never reaches the classifier and never appears in a digest.
 # A false inclusion costs a fraction of a cent.
 
 min_keyword_hits: 1
@@ -10,7 +10,7 @@ min_keyword_hits: 1
 # Loose on purpose: a false exclusion here is invisible and permanent, a false
 # inclusion costs a fraction of a cent. Expect to tighten this, not loosen it.
 #
-# Two-letter tokens are deliberately absent — "ui" matches "building" and
+# Two-letter tokens are deliberately absent, "ui" matches "building" and
 # "circuit", "ux" matches "flux". Note that "api" below already behaves this way
 # (it matches "rapid", "capital", "therapies"); it is kept because the cost of
 # over-matching is a cent, but do not add more of that shape. "etl" and "gis"
@@ -180,7 +180,7 @@ include_keywords:
   - broadening participation
   - research training
 
-  # domain vocabulary drawn from the roster — these are how an embedded
+  # domain vocabulary drawn from the roster, these are how an embedded
   # software requirement usually announces itself inside a domain call
   - phenotyping
   - genomics
@@ -206,10 +206,10 @@ include_keywords:
   - carbon accounting
   - emissions monitoring
 
-# Anything from these funders goes to the classifier regardless of keywords —
+# Anything from these funders goes to the classifier regardless of keywords -
 # their calls are few and often worth reading in full.
 # Matched against rec["agency"]. Foundation adapters set agency to the source
-# name, so every foundation in sources.yaml must appear here — otherwise a call
+# name, so every foundation in sources.yaml must appear here, otherwise a call
 # we already paid the model to extract can still be dropped for want of a
 # keyword, which is the one loss this pipeline should never take.
 agency_allowlist:
@@ -231,7 +231,7 @@ agency_allowlist:
   - Packard
   - Illinois Research Board
 
-# Sources curated by humans elsewhere — assess everything they surface.
+# Sources curated by humans elsewhere, assess everything they surface.
 # Matched with str.startswith against rec["source"]. MUST be quoted: a bare
 # `- fnd:` is YAML for the dict {fnd: None}, which made startswith() raise
 # TypeError and take the whole source down with it.

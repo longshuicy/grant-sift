@@ -1,5 +1,5 @@
 # Past and current collaborations. This file decides whether Grant Sift is
-# useful, so keep it easy to edit — any RSE should be able to add a line
+# useful, so keep it easy to edit, any RSE should be able to add a line
 # with a pull request.
 #
 # status: warm | cold | do-not-contact
@@ -7,7 +7,7 @@
 #   cold          real past work, but the relationship has gone quiet
 #   do-not-contact  do not surface, for whatever reason
 #
-# `collaborator` is the DOMAIN partner — the person who needs an RSE and may
+# `collaborator` is the DOMAIN partner, the person who needs an RSE and may
 # not know it. Our own staff belong in `notes` as the internal contact, not
 # here, or the matcher will match us to ourselves.
 #
@@ -16,7 +16,7 @@
 #
 # PROVENANCE: assembled from ncsa.illinois.edu/isda project pages, Jong Lee's
 # CV, Wenqi He's portfolio, and longshuicy.github.io. Names, funders, years and
-# grant numbers are taken from those sources. `status` is NOT — it was inferred
+# grant numbers are taken from those sources. `status` is NOT, it was inferred
 # from dates alone (ongoing => warm, ended => cold). Fix it; only you know.
 
 # ===========================================================================
@@ -25,7 +25,7 @@
 
 - domain: arctic and permafrost science
   collaborator: Permafrost Discovery Gateway team (Woodwell Climate Research Center)
-  project: Permafrost Discovery Gateway — AI/ML tracking of Arctic permafrost thaw
+  project: Permafrost Discovery Gateway, AI/ML tracking of Arctic permafrost thaw
   years: 2021-present
   our_role: large-scale inference pipeline, workflow orchestration, data products, web viz
   funders: [NSF, Woodwell Climate Research Center]
@@ -33,7 +33,7 @@
 
 - domain: bioenergy crops and agricultural emissions
   collaborator: MBC-Lab team (Midwest Bioenergy Crop Landscape Laboratory)
-  project: MBC-Lab — gold-standard data and platform for validating field-level emissions
+  project: MBC-Lab, gold-standard data and platform for validating field-level emissions
   years: 2020-present
   our_role: spatio-temporal data platform, field sensor ingest, validation workflows
   funders: [ARPA-E SmartFarm]
@@ -41,19 +41,19 @@
   notes: internal contact Jong Lee (Co-PI); ARPA-E cadence, so watch SmartFarm follow-ons
 
 - domain: natural hazards and community resilience
-  collaborator: John W. van de Lindt (PI, Civil Engineering, Colorado State) — multi-university NIST center
+  collaborator: John W. van de Lindt (PI, Civil Engineering, Colorado State), multi-university NIST center
   project: IN-CORE / Center for Risk-Based Community Resilience Planning
   years: 2015-present
   our_role: Ergo platform, backend services, scientific computation packages, web applications, data publishing
   funders: [NIST]
   status: warm
   notes: >
-    internal contact Jong Lee (task lead). ~$20M center, 11 universities —
+    internal contact Jong Lee (task lead). ~$20M center, 11 universities -
     subaward routes exist here that do not require being on the core award.
 
 - domain: water quality and watershed management
   collaborator: Great Lakes to Gulf / NGRREC team (Lewis and Clark Community College)
-  project: Great Lakes to Gulf Virtual Observatory — Mississippi basin nitrate and GREON data
+  project: Great Lakes to Gulf Virtual Observatory, Mississippi basin nitrate and GREON data
   years: 2014-present
   our_role: Clowder data management, GeoDashboard visualisation, real-time sensor ingest, decision-support tools
   funders: [Walton Family Foundation, NGRREC]
@@ -62,7 +62,7 @@
 
 - domain: computational social science and social media research
   collaborator: Tess McNulty (Prof., University of Illinois)
-  project: Social Media Macroscope / SMILE — social media analytics science gateway
+  project: Social Media Macroscope / SMILE, social media analytics science gateway
   years: 2018-present
   our_role: science gateway, GraphQL and Node.js services, AWS pipelines, NLP, sentiment analysis, network visualisation
   funders: [NCSA Center Directed Discretionary Research, Illinois Computes]
@@ -70,7 +70,7 @@
 
 - domain: synthetic biology and biofoundry automation
   collaborator: Illinois Cloud Biofoundry team
-  project: Illinois Cloud Biofoundry — AI interface turning research questions into executable experiments
+  project: Illinois Cloud Biofoundry, AI interface turning research questions into executable experiments
   years: 2022-present
   our_role: remote-access platform, AI-driven experiment planning, automated scientific workflows
   funders: [NSF iBioFoundry]
@@ -78,7 +78,7 @@
 
 - domain: carbon capture and energy systems
   collaborator: Illinois Sustainable Technology Center / Illinois Basin DAC Hub team
-  project: Direct Air Capture Hub — optimal siting for greenhouse gas capture in the Illinois Basin
+  project: Direct Air Capture Hub, optimal siting for greenhouse gas capture in the Illinois Basin
   years: 2022-present
   our_role: geospatial siting application, temporal dataset viewer, decision support
   funders: [DOE, Illinois Sustainable Technology Center]
@@ -86,7 +86,7 @@
 
 - domain: medical imaging and surgical oncology
   collaborator: MarginDx team (Bioengineering, University of Illinois)
-  project: MarginDx — AI tumour imaging and margin detection for surgical precision
+  project: MarginDx, AI tumour imaging and margin detection for surgical precision
   years: 2023-present
   our_role: AI model optimisation, imaging pipeline, evaluation tooling
   funders: [ARPA-H]
@@ -95,7 +95,7 @@
 
 - domain: AI in education and research support
   collaborator: University of Illinois teaching and library units
-  project: Illinois Chat — AI teaching assistant, deep document search, literature review
+  project: Illinois Chat, AI teaching assistant, deep document search, literature review
   years: 2023-present
   our_role: RAG and document search platform, web application, deployment at campus scale
   funders: [University of Illinois]
@@ -103,13 +103,13 @@
 
 - domain: research data management and software sustainability
   collaborator: Clowder open-source community and framework users
-  project: Clowder Framework — data management for long-tail research data
+  project: Clowder Framework, data management for long-tail research data
   years: 2013-present
   our_role: core platform development, extractor architecture, ML model integration, long-term hosting
   funders: [NSF CSSI, NIH]
   status: warm
   notes: >
-    internal contact Luigi Marini. Our most reusable asset — a data-management
+    internal contact Luigi Marini. Our most reusable asset, a data-management
     requirement in almost any domain call is a Clowder-shaped opening.
 
 # ===========================================================================
@@ -118,7 +118,7 @@
 
 - domain: neurobiology and connectomics
   collaborator: WormAtlas / C. elegans neural tissue team
-  project: WormFindr — visualisation platform for neural tissue segmentation
+  project: WormFindr, visualisation platform for neural tissue segmentation
   years: 2022-2023
   our_role: segmentation visualisation platform, image pipeline, web front end
   funders: [NIH]
@@ -127,7 +127,7 @@
 
 - domain: climate and public health
   collaborator: Illinois Department of Public Health
-  project: Climate-Health Explorer — interactive climate and disease surveillance mapping
+  project: Climate-Health Explorer, interactive climate and disease surveillance mapping
   years: 2022-2023
   our_role: interactive geospatial mapping, surveillance data integration, web application
   funders: [Illinois Department of Public Health]
@@ -136,7 +136,7 @@
 
 - domain: marine science and history of science
   collaborator: Oceans 1876 project team
-  project: Oceans 1876 — historical oceanographic expedition data visualisation
+  project: Oceans 1876, historical oceanographic expedition data visualisation
   years: 2022-2023
   our_role: historical data digitisation, visualisation, web publication
   funders: [Andrew Carnegie Fellowship]
@@ -145,7 +145,7 @@
 
 - domain: chemistry education
   collaborator: Molecule Maker Lab Institute (University of Illinois)
-  project: Digital Molecule Maker — chemistry education platform for synthetic design
+  project: Digital Molecule Maker, chemistry education platform for synthetic design
   years: 2022-2023
   our_role: education platform, WebGL molecular interface, colour-space work
   funders: [NSF Molecule Maker Lab Institute]
@@ -154,7 +154,7 @@
 
 - domain: environmental economics and land use
   collaborator: Amazon environmental and economic data team
-  project: Simple NetInt — interactive multilayer variable-scale 3D WebGL map
+  project: Simple NetInt, interactive multilayer variable-scale 3D WebGL map
   years: 2022-2023
   our_role: 3D WebGL visualisation, multilayer geospatial rendering
   funders: [Illinois Computes]
@@ -163,7 +163,7 @@
 
 - domain: transportation and environmental compliance
   collaborator: Illinois Department of Transportation
-  project: Transportation Review — form application with geospatial processing
+  project: Transportation Review, form application with geospatial processing
   years: 2022-2023
   our_role: form application, geospatial processing, workflow
   funders: [Illinois Department of Transportation]
@@ -176,7 +176,7 @@
 
 - domain: public health and K-12 education
   collaborator: SHIELD Illinois / K-12 school partners
-  project: SHIELD K-12 Playbook — reopening guidance web application and test-result pipeline
+  project: SHIELD K-12 Playbook, reopening guidance web application and test-result pipeline
   years: 2021-2022
   our_role: interactive web application, AWS ingest pipelines, automated quarantine logic
   funders: [Rockefeller Foundation]
@@ -187,18 +187,18 @@
   collaborator: N. Kenyon, A. Bartholomew, D. Salomon (PIs, NIH P01 program)
   project: Immunomodulatory and Regenerative Effects of Mesenchymal Stem Cells on Allografts (1P01AI089556)
   years: 2011-2016
-  our_role: eScience core — indexing heterogeneous collections, uniform data access, visualisation, data mining, microscopy imagery
+  our_role: eScience core, indexing heterogeneous collections, uniform data access, visualisation, data mining, microscopy imagery
   funders: [NIH]
   status: cold
 
 - domain: vector-borne disease
   collaborator: Vector Borne Disease project team
-  project: Vector Borne Disease — surveillance data analysis
+  project: Vector Borne Disease, surveillance data analysis
   years: unknown
   our_role: data management and analysis
   funders: []
   status: cold
-  notes: listed on the ISDA project index with no detail page — confirm scope and dates before relying on this
+  notes: listed on the ISDA project index with no detail page, confirm scope and dates before relying on this
 
 # ===========================================================================
 # Earth, environmental and agricultural science
@@ -206,7 +206,7 @@
 
 - domain: ecosystem modelling and terrestrial carbon
   collaborator: Michael Dietze (PI, ecosystem modelling; with University of Wisconsin-Madison)
-  project: PEcAn — Predictive Ecosystem Analyzer, model-data synthesis across the Upper Midwest (DBI-1062547)
+  project: PEcAn, Predictive Ecosystem Analyzer, model-data synthesis across the Upper Midwest (DBI-1062547)
   years: 2011-2014
   our_role: scientific workflow system, heterogeneous environmental data management, Bayesian data assimilation infrastructure
   funders: [NSF]
@@ -215,7 +215,7 @@
 
 - domain: plant phenotyping and crop breeding
   collaborator: TERRA-REF consortium (energy sorghum breeding and remote sensing teams)
-  project: TERRA — Transformation of Phenotyping for Energy Sorghum
+  project: TERRA, Transformation of Phenotyping for Energy Sorghum
   years: 2015-2019
   our_role: phenotyping data pipelines, Clowder-based data management, trait prediction analytics, standards development
   funders: [ARPA-E]
@@ -224,14 +224,14 @@
 
 - domain: critical zone science, hydrology and soil
   collaborator: Praveen Kumar (PI, Civil and Environmental Engineering, University of Illinois)
-  project: IML-CZO — Intensively Managed Landscapes Critical Zone Observatory
+  project: IML-CZO, Intensively Managed Landscapes Critical Zone Observatory
   years: 2013-2020
   our_role: project data management infrastructure, web platform, observational network data support
   funders: [NSF]
   status: cold
   notes: >
     same department as the CyberSEES relationship. CZO has been restructured
-    into CZ Thematic Clusters — a live re-entry point.
+    into CZ Thematic Clusters, a live re-entry point.
 
 - domain: green infrastructure and urban hydrology
   collaborator: Barbara Minsker (PI, Civil and Environmental Engineering)
@@ -244,16 +244,16 @@
 
 - domain: water science software sustainability
   collaborator: Stanley Ahalt (PI) and Barbara Minsker (Co-PI)
-  project: WSSI — Water Science Software Institute strategic plan (ACI-1151982, EAGER)
+  project: WSSI, Water Science Software Institute strategic plan (ACI-1151982, EAGER)
   years: 2011-2012
   our_role: conceptualisation and strategic planning, community workshops, software engineering prototypes
   funders: [NSF]
   status: cold
-  notes: a software-sustainability credential — cite it for institute and sustainability calls
+  notes: a software-sustainability credential, cite it for institute and sustainability calls
 
 - domain: great lakes environmental monitoring
   collaborator: Illinois-Indiana Sea Grant / Great Lakes Monitoring partners
-  project: Great Lakes Monitoring — GeoDashboard for environmental sensor data
+  project: Great Lakes Monitoring, GeoDashboard for environmental sensor data
   years: 2012-2016
   our_role: GeoDashboard platform, sensor data integration, interactive mapping
   funders: [Illinois-Indiana Sea Grant]
@@ -285,7 +285,7 @@
   funders: [Syngenta]
   status: cold
   notes: >
-    internal contact Jong Lee (PI). Industry contract, not a grant — evidence
+    internal contact Jong Lee (PI). Industry contract, not a grant, evidence
     we can take commercial work, which some programmes require as match.
 
 - domain: agricultural economics and food systems
@@ -304,7 +304,7 @@
   our_role: decision-support tools and data management
   funders: []
   status: cold
-  notes: on the ISDA index without detail pages — confirm scope, funder and dates before use
+  notes: on the ISDA index without detail pages, confirm scope, funder and dates before use
 
 # ===========================================================================
 # Civil infrastructure and structural engineering
@@ -312,7 +312,7 @@
 
 - domain: multi-hazard risk and structural engineering
   collaborator: Ergo / MAEviz user community (earthquake and multi-hazard engineering)
-  project: Ergo and MAEviz — seismic risk and multi-hazard assessment, response and planning
+  project: Ergo and MAEviz, seismic risk and multi-hazard assessment, response and planning
   years: 2007-present
   our_role: platform architecture, technical lead, HPC-backed analysis, plug-in ecosystem
   funders: [NIST, KISTI]
@@ -327,7 +327,7 @@
   funders: [NSF]
   status: cold
   notes: >
-    internal contact Jong Lee. Phase I only — no Phase II. NSF Convergence
+    internal contact Jong Lee. Phase I only, no Phase II. NSF Convergence
     Accelerator reruns these tracks, so a resubmission window is plausible.
 
 - domain: structural risk for high-rise buildings
@@ -338,7 +338,7 @@
   funders: [KISTI]
   status: cold
   notes: >
-    internal contact Jong Lee (PI). One of several KISTI awards — a durable
+    internal contact Jong Lee (PI). One of several KISTI awards, a durable
     international relationship worth treating as one channel, not four grants.
 
 # ===========================================================================
@@ -347,7 +347,7 @@
 
 - domain: research data services and format conversion
   collaborator: Brown Dog / DIBBs user community
-  project: CIF21 DIBBs — Brown Dog data transformation services
+  project: CIF21 DIBBs, Brown Dog data transformation services
   years: 2013-2019
   our_role: extraction and conversion services, Polyglot, scalable transformation infrastructure
   funders: [NSF]
@@ -356,7 +356,7 @@
 
 - domain: digital preservation and archival science
   collaborator: National Archives and Records Administration (NARA)
-  project: NARA digital preservation — scalable format conversion and software registry
+  project: NARA digital preservation, scalable format conversion and software registry
   years: 2010-2013
   our_role: massively scalable conversion tooling, format registry, content-loss measurement
   funders: [NSF, NARA]
@@ -369,7 +369,7 @@
   our_role: word-spotting computer vision, crowdsourcing interfaces, distributed database, high-resolution image delivery
   funders: [NSF, NARA]
   status: cold
-  notes: 125TB of 1940 Census images — our clearest hybrid automation-plus-crowdsourcing credential
+  notes: 125TB of 1940 Census images, our clearest hybrid automation-plus-crowdsourcing credential
 
 - domain: digital humanities and art history
   collaborator: DID-ARQ art history and manuscript collections partners
@@ -389,7 +389,7 @@
   our_role: Medici/Clowder integration, computer vision and audio extraction services, interaction visualisation
   funders: [NSF]
   status: cold
-  notes: all three co-PIs are still at Illinois — a warm re-introduction, not a cold call
+  notes: all three co-PIs are still at Illinois, a warm re-introduction, not a cold call
 
 - domain: research reproducibility and data curation
   collaborator: SEAD and Whole Tale communities
@@ -404,7 +404,7 @@
 
 - domain: geoscience cyberinfrastructure
   collaborator: EarthCube community
-  project: EarthCube — geoscience cyberinfrastructure
+  project: EarthCube, geoscience cyberinfrastructure
   years: 2013-2019
   our_role: cyberinfrastructure and data integration contributions
   funders: [NSF]
@@ -413,7 +413,7 @@
 
 - domain: genomics and bioinformatics
   collaborator: KnowEnG center team
-  project: KnowEnG — Knowledge Engine for Genomics
+  project: KnowEnG, Knowledge Engine for Genomics
   years: 2014-2019
   our_role: data and analysis platform contributions
   funders: [NIH]
@@ -427,11 +427,11 @@
   our_role: data management and pipeline contributions
   funders: [NSF, DOE]
   status: cold
-  notes: confirm scope — NCSA's LSST role sat largely outside ISDA
+  notes: confirm scope, NCSA's LSST role sat largely outside ISDA
 
 - domain: materials science data
   collaborator: Materials Data Facility team
-  project: Materials Data Facility — materials data publication and discovery
+  project: Materials Data Facility, materials data publication and discovery
   years: unknown
   our_role: data publication and discovery infrastructure
   funders: [NIST]
@@ -440,18 +440,18 @@
 
 - domain: high-performance computing and research computing services
   collaborator: XSEDE and LinkSCEEM user communities
-  project: XSEDE and LinkSCEEM — national and regional HPC service delivery
+  project: XSEDE and LinkSCEEM, national and regional HPC service delivery
   years: 2011-2020
   our_role: service delivery, gateways, user-facing tooling
   funders: [NSF]
   status: cold
   notes: >
-    XSEDE's successor is ACCESS — service and gateway calls there are a live
+    XSEDE's successor is ACCESS, service and gateway calls there are a live
     channel even though this specific award ended.
 
 - domain: distributed and at-scale computing (international)
   collaborator: GECAT partners, including South Korean institutions (KISTI)
-  project: "SAVI: GECAT — Global Initiative to Enhance @scale and Distributed Computing and Analysis Technologies"
+  project: "SAVI: GECAT, Global Initiative to Enhance @scale and Distributed Computing and Analysis Technologies"
   years: 2014-2020
   our_role: senior personnel; point of contact for the South Korea collaboration
   funders: [NSF]
@@ -460,7 +460,7 @@
 
 - domain: science gateways and semantic web for HPC
   collaborator: Korea Institute of Science and Technology Information (KISTI)
-  project: KNSG — KISTI-NCSA Science Gateway, semantically-aware web technology for HPC
+  project: KNSG, KISTI-NCSA Science Gateway, semantically-aware web technology for HPC
   years: 2010-2014
   our_role: gateway architecture, semantic web technology, HPC integration, Co-PI role
   funders: [KISTI]
@@ -478,7 +478,7 @@
 
 - domain: research data infrastructure and workbenches
   collaborator: National Data Service / NDS Labs Workbench community
-  project: NDS Labs Workbench and T2C2 — unified access to computational tools
+  project: NDS Labs Workbench and T2C2, unified access to computational tools
   years: 2014-2019
   our_role: workbench platform, containerised tool delivery, data services
   funders: [NSF]
@@ -487,7 +487,7 @@
 
 - domain: disaster response data
   collaborator: RAPID project team
-  project: RAPID — rapid-response data collection and analysis
+  project: RAPID, rapid-response data collection and analysis
   years: unknown
   our_role: data collection and analysis tooling
   funders: [NSF]

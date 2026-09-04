@@ -8,7 +8,7 @@ import time
 import requests
 
 # NCSA Lumen, the default gateway: a self-hosted OpenAI-compatible proxy.
-# BASE_URL is the prefix only — "/chat/completions" is appended below.
+# BASE_URL is the prefix only, "/chat/completions" is appended below.
 DEFAULT_BASE_URL = "https://lumen.ncsa.illinois.edu/v1"
 
 # Lumen proxies different backends per deployment, so a default model id is a
@@ -28,7 +28,7 @@ def _require_config():
         return
     raise RuntimeError(
         "LLM gateway not configured: GRANT_SIFT_LLM_API_KEY is unset.\n"
-        "Needs a Lumen project key ('sk_...'), generated in the Lumen UI —\n"
+        "Needs a Lumen project key ('sk_...'), generated in the Lumen UI -\n"
         "a machine-to-machine key, not your OAuth login.\n\n"
         f"Gateway is {BASE_URL}\n"
         f"Model is {MODEL}\n"
@@ -134,7 +134,7 @@ Score each opportunity 0-100 on whether this group should look at it.
 
 The valuable finds are NOT the obvious cyberinfrastructure calls, which everyone
 already sees. They are domain solicitations that carry a software, data-management,
-computational, or sustainability requirement inside them — where a domain PI will
+computational, or sustainability requirement inside them, where a domain PI will
 need an RSE partner and may not realise it yet.
 
 Categories:
@@ -151,7 +151,8 @@ Scoring guide:
   0-39    not for us
 
 Then match against the collaborator roster. Pick at most ONE person: the closest
-past collaboration by domain and by the kind of work we did. If nothing on the
+past collaboration by domain and by the kind of work we did. Copy match_domain
+verbatim from that roster line's first field so it can be grouped on. If nothing on the
 roster is a real fit, return null for every match field rather than reaching.
 
 Return ONLY JSON, no fences:
@@ -160,6 +161,7 @@ Return ONLY JSON, no fences:
   "category": "one of the above",
   "rationale": "one sentence, concrete, naming what makes it fit or not",
   "match_name": "collaborator name or null",
+  "match_domain": "the domain field of the roster line you matched, copied verbatim, or null",
   "match_project": "the past project or null",
   "match_status": "warm | cold | do-not-contact | null",
   "match_rationale": "one sentence on why this person, or null"
@@ -172,7 +174,7 @@ def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
     parts = [f"ROSTER OF PAST COLLABORATIONS:\n{roster_block}"]
     if corrections:
         parts.append(
-            "CALIBRATION — cases where our people disagreed with earlier scores. "
+            "CALIBRATION, cases where our people disagreed with earlier scores. "
             "Weigh these:\n" + corrections
         )
     parts.append(

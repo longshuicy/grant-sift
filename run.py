@@ -27,8 +27,13 @@ def cmd_ingest(conn, args):
     sources, _, prefilter = pipeline.load_config(args.config)
     print("Ingesting:")
     stats = pipeline.ingest(conn, sources, prefilter)
-    print(f"\n{stats['fetched']} fetched, {stats['kept']} passed prefilter, "
-          f"{stats['new']} new or changed")
+    line = (f"\n{stats['fetched']} fetched, {stats['kept']} passed prefilter, "
+            f"{stats['new']} new or changed")
+    if stats.get("enriched"):
+        line += f", {stats['enriched']} enriched with detail"
+    if stats.get("detail_failed"):
+        line += f", {stats['detail_failed']} detail fetch(es) failed"
+    print(line)
     return stats
 
 

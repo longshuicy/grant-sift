@@ -1,4 +1,4 @@
-# Generated state — all of it is rebuildable with `python run.py daily`
+# Generated state, all of it is rebuildable with `python run.py daily`
 grant-sift.db
 grant-sift.db-journal
 grant-sift.db-wal

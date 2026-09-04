@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grant Sift — funding watch</title>
+<title>Grant Sift: funding watch</title>
 <style>
   :root {
     --paper:      #f3f5f2;
@@ -111,6 +111,15 @@
   details.more { margin-top: 10px; font-size: 13.5px; color: var(--ink-soft); max-width: 72ch; }
   details.more summary { cursor: pointer; color: var(--moss); }
   details.more p { margin: 8px 0 0; }
+  .acts { margin-top: 8px; }
+  .act { font-size: 13px; color: var(--moss); text-decoration: none; }
+  .act:hover { text-decoration: underline; }
+  .amt { color: var(--ink); font-weight: 500; }
+  .nosyn { margin: 8px 0 0; font-size: 13px; color: var(--ink-faint); }
+  .areatag { display: inline-block; float: right; margin: 0 0 4px 8px; padding: 1px 7px;
+             font: inherit; font-size: 11.5px; color: var(--ink-soft); cursor: pointer;
+             background: var(--paper); border: 1px solid var(--rule); border-radius: 9px; }
+  .areatag:hover { color: var(--moss); border-color: var(--moss); }
 
   .empty { padding: 60px 0; text-align: center; color: var(--ink-soft); }
   .empty b { font-family: var(--serif); font-size: 19px; display: block; color: var(--ink); margin-bottom: 6px; }
@@ -133,9 +142,9 @@
 
   <header class="strip">
     <div class="brand">Grant Sift<span id="asof">loading</span></div>
-    <div class="stat"><b id="n-open">—</b><i>open</i></div>
-    <div class="stat warn"><b id="n-soon">—</b><i>close within 30 days</i></div>
-    <div class="stat"><b id="n-match">—</b><i>match a past collaborator</i></div>
+    <div class="stat"><b id="n-open">..</b><i>open calls</i></div>
+    <div class="stat warn"><b id="n-soon">..</b><i>close within 30 days</i></div>
+    <div class="stat"><b id="n-match">..</b><i>match a past collaborator</i></div>
   </header>
 
   <div id="alarm"></div>
@@ -147,10 +156,13 @@
     <button class="chip" data-filter="embedded" aria-pressed="false">Domain calls</button>
     <button class="chip" data-filter="ci" aria-pressed="false">CI programs</button>
     <button class="chip" data-filter="foundation" aria-pressed="false">Foundations</button>
+    <select id="area" class="sortsel" aria-label="Filter by roster area">
+      <option value="">All roster areas</option>
+    </select>
     <select id="sort" class="sortsel">
-      <option value="deadline">Soonest deadline</option>
-      <option value="score">Best fit</option>
-      <option value="new">Newest</option>
+      <option value="deadline">Sort: soonest deadline</option>
+      <option value="score">Sort: highest relevance</option>
+      <option value="new">Sort: recently added</option>
     </select>
   </div>
 
@@ -162,14 +174,15 @@
 
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "deadline";
+let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "deadline", AREA = "";
 
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
 const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function matches(o) {
+  if (AREA && o.match_domain !== AREA) return false;
   if (QUERY) {
-    const hay = [o.title, o.agency, o.source, o.match_name, o.match_project, o.rationale]
+    const hay = [o.title, o.agency, o.source, o.match_name, o.match_domain, o.match_project, o.rationale]
       .join(" ").toLowerCase();
     if (!hay.includes(QUERY)) return false;
   }
@@ -206,13 +219,16 @@ function rowHTML(o) {
   }
 
   const bits = [esc(o.agency || o.source)];
-  if (o.award_ceiling) bits.push("up to " + esc(o.award_ceiling));
+  if (o.award_ceiling) bits.push(`<span class="amt">award ${esc(o.award_ceiling)}</span>`);
   const cap = o.indirect_cap
     ? `<span class="cap">indirect capped at ${esc(o.indirect_cap)}</span>` : "";
 
+  const area = o.match_domain
+    ? `<button class="areatag" data-area="${esc(o.match_domain)}" title="Show only this roster area">${esc(o.match_domain)}</button>`
+    : "";
   const fit = o.match_name ? `
-    <div class="fit">Closest fit: <b>${esc(o.match_name)}</b>
-      ${o.match_project ? " — " + esc(o.match_project) : ""}
+    <div class="fit">${area}Closest fit: <b>${esc(o.match_name)}</b>
+      ${o.match_project ? ": " + esc(o.match_project) : ""}
       ${o.match_status && o.match_status !== "warm"
         ? `<span class="cold">(${esc(o.match_status)})</span>` : ""}
       ${o.match_rationale ? "<br>" + esc(o.match_rationale) : ""}</div>` : "";
@@ -221,15 +237,21 @@ function rowHTML(o) {
     <div class="when">${when}</div>
     <div>
       <div class="bar">
-        <span class="track"><span class="fill" style="width:${Math.max(4, o.score * 0.74)}px"></span></span>
-        <span class="num">${o.score}</span>
+        <span class="track" role="img" aria-label="Relevance ${o.score} of 100"><span class="fill" style="width:${Math.max(4, o.score * 0.74)}px"></span></span>
+        <span class="num" title="How well this matches the group's work, scored 0 to 100 by the model">relevance ${o.score}/100</span>
       </div>
-      <h2 class="title"><a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a></h2>
+      <h2 class="title">${o.url
+        ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>`
+        : esc(o.title)}</h2>
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
       <p class="why">${esc(o.rationale)}</p>
       ${fit}
-      ${o.synopsis ? `<details class="more"><summary>Read the call</summary>
-        <p>${esc(o.synopsis)}</p></details>` : ""}
+      <div class="acts">
+        ${o.url ? `<a class="act" href="${esc(o.url)}" target="_blank" rel="noopener">Open the full call &rarr;</a>` : ""}
+      </div>
+      ${o.synopsis
+        ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
+        : `<p class="nosyn">No summary was captured for this call. Use "Open the full call".</p>`}
     </div>
   </article>`;
 }
@@ -237,7 +259,7 @@ function rowHTML(o) {
 function render() {
   const rows = sortRows(DATA.filter(matches));
   document.getElementById("tally").textContent =
-    `${rows.length} of ${DATA.length} shown`;
+    `${rows.length} of ${DATA.length} shown` + (AREA ? ` in "${AREA}"` : "");
   document.getElementById("list").innerHTML = rows.length
     ? rows.map(rowHTML).join("")
     : `<div class="empty"><b>Nothing matches those filters.</b>
@@ -253,6 +275,20 @@ function boot(payload) {
   document.getElementById("asof").textContent =
     "updated " + (payload.generated_at || "").slice(0, 10);
 
+  // Built from the data, not from a hardcoded list, so it always reflects the
+  // roster as it actually matched. Count per area, commonest first.
+  const counts = new Map();
+  DATA.forEach(o => o.match_domain && counts.set(o.match_domain, (counts.get(o.match_domain) || 0) + 1));
+  const sel = document.getElementById("area");
+  [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([d, n]) => {
+      const opt = document.createElement("option");
+      opt.value = d;
+      opt.textContent = `${d} (${n})`;
+      sel.appendChild(opt);
+    });
+  if (!counts.size) sel.disabled = true;
+
   const stale = payload.stale_sources || [];
   if (stale.length) {
     document.getElementById("alarm").innerHTML =
@@ -261,7 +297,7 @@ function boot(payload) {
        Check the adapter before trusting this list as complete.</div>`;
   }
   document.getElementById("foot").textContent =
-    `Generated ${payload.generated_at || "—"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
+    `Generated ${payload.generated_at || "unknown"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
   render();
 }
 
@@ -270,6 +306,17 @@ document.getElementById("q").addEventListener("input", e => {
 });
 document.getElementById("sort").addEventListener("change", e => {
   SORT = e.target.value; render();
+});
+document.getElementById("area").addEventListener("change", e => {
+  AREA = e.target.value; render();
+});
+// Clicking an area tag on a row filters to it, and keeps the picker in sync.
+document.getElementById("list").addEventListener("click", e => {
+  const tag = e.target.closest(".areatag");
+  if (!tag) return;
+  AREA = AREA === tag.dataset.area ? "" : tag.dataset.area;
+  document.getElementById("area").value = AREA;
+  render();
 });
 document.querySelectorAll(".chip").forEach(btn => {
   btn.addEventListener("click", () => {

@@ -26,7 +26,7 @@ def load_config(config_dir="config"):
 
 
 # --------------------------------------------------------------------------
-# Prefilter — deterministic, no model. Only exclude what you are sure about.
+# Prefilter, deterministic, no model. Only exclude what you are sure about.
 # --------------------------------------------------------------------------
 
 def prefilter_pass(rec, rules):
@@ -54,8 +54,39 @@ def prefilter_pass(rec, rules):
 # Ingest
 # --------------------------------------------------------------------------
 
+# Sources whose list response is too thin to classify on, so a per-record
+# detail fetch is worth one request. Gated by db.needs_detail, so a given
+# opportunity is fetched once in its life, not once a morning.
+ENRICH_SOURCES = ("grants.gov",)
+
+
+def _enrich(conn, rec, stats, verbose):
+    """Fill in description and award figures from the per-opportunity endpoint.
+
+    A failure here degrades to the thin record rather than losing it: a missing
+    description costs classification quality, but dropping the opportunity
+    entirely costs the opportunity.
+    """
+    if rec.get("source") not in ENRICH_SOURCES or not rec.get("external_id"):
+        return
+    if not db.needs_detail(conn, rec["id"]):
+        return
+    try:
+        detail = adapters.grants_gov_detail(rec["external_id"])
+    except Exception as exc:  # noqa: BLE001
+        stats["detail_failed"] += 1
+        if verbose and stats["detail_failed"] <= 3:
+            print(f"    detail fetch failed for {rec['id']}: {str(exc)[:70]}")
+        return
+    for k, v in detail.items():
+        if v:
+            rec[k] = v
+    if detail:
+        stats["enriched"] += 1
+
+
 def ingest(conn, sources, prefilter, verbose=True):
-    stats = {"fetched": 0, "kept": 0, "new": 0}
+    stats = {"fetched": 0, "kept": 0, "new": 0, "enriched": 0, "detail_failed": 0}
     kw = sources.get("keywords", [])
 
     def run(name, kind, url, fn):
@@ -69,6 +100,7 @@ def ingest(conn, sources, prefilter, verbose=True):
                 if not ok:
                     continue
                 kept += 1
+                _enrich(conn, rec, stats, verbose)
                 if db.upsert_opportunity(conn, rec):
                     stats["new"] += 1
             stats["kept"] += kept
@@ -128,6 +160,37 @@ def roster_block(roster):
     return "\n".join(lines)
 
 
+def _resolve_domain(result, roster):
+    """Backfill match_domain from the roster when the model omits or garbles it.
+
+    The prompt asks for it verbatim, but a model that shortens
+    "R. Alvarez (PI, Civil and Environmental Engineering)" to "R. Alvarez"
+    would otherwise leave the dashboard filter with an empty bucket. Matching
+    on the name is enough because the roster line is the only thing that could
+    have produced it.
+    """
+    name = (result.get("match_name") or "").strip()
+    if not name:
+        return result
+    domains = {(e.get("domain") or "").strip() for e in roster}
+    if (result.get("match_domain") or "").strip() in domains:
+        return result
+    lowered = name.lower()
+    for e in roster:
+        collab = (e.get("collaborator") or "").strip()
+        if not collab:
+            continue
+        if lowered == collab.lower() or lowered in collab.lower() or collab.lower() in lowered:
+            result["match_domain"] = e.get("domain")
+            return result
+    for e in roster:                     # last resort: match on the project name
+        proj = (result.get("match_project") or "").strip().lower()
+        if proj and proj in (e.get("project") or "").lower():
+            result["match_domain"] = e.get("domain")
+            return result
+    return result
+
+
 def assess_new(conn, roster, limit=200, verbose=True):
     pending = db.unassessed(conn, limit)
     if not pending:
@@ -144,6 +207,7 @@ def assess_new(conn, roster, limit=200, verbose=True):
             if verbose:
                 print(f"  assess failed for {opp['id']}: {str(exc)[:80]}")
             continue
+        result = _resolve_domain(result, roster)
         db.save_assessment(conn, opp["id"], result, llm.MODEL,
                            db.hash_text(opp["title"], opp.get("synopsis")))
         done += 1
@@ -154,7 +218,7 @@ def assess_new(conn, roster, limit=200, verbose=True):
 
 
 # --------------------------------------------------------------------------
-# Export — the dashboard is a static file reading this
+# Export, the dashboard is a static file reading this
 # --------------------------------------------------------------------------
 
 def export_json(conn, path="web/opportunities.json", min_score=40):
@@ -162,7 +226,8 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
         """SELECT o.id, o.source, o.title, o.synopsis, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
                   a.score, a.category, a.rationale,
-                  a.match_name, a.match_project, a.match_status, a.match_rationale
+                  a.match_name, a.match_domain, a.match_project, a.match_status,
+                  a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
            WHERE a.score >= ?
            ORDER BY (o.deadline IS NULL), o.deadline ASC, a.score DESC""",
@@ -185,7 +250,7 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
 
 
 # --------------------------------------------------------------------------
-# Digest — curated feeds, not per-user queries
+# Digest, curated feeds, not per-user queries
 # --------------------------------------------------------------------------
 
 def _score(r):
@@ -217,7 +282,7 @@ def _within(deadline, days):
 def build_digest(conn, feed, since_days=7, respect_sent_log=True):
     rows = conn.execute(
         """SELECT o.*, a.score, a.category, a.rationale, a.match_name,
-                  a.match_project, a.match_status, a.match_rationale
+                  a.match_domain, a.match_project, a.match_status, a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
            WHERE o.first_seen >= date('now', ?)
            ORDER BY a.score DESC""",
@@ -240,7 +305,7 @@ def build_digest(conn, feed, since_days=7, respect_sent_log=True):
 def render_digest(feed, items, stale):
     if not items and not stale:
         return None
-    lines = [f"Grant Sift — {feed} — {date.today().isoformat()}", ""]
+    lines = [f"Grant Sift: {feed} ({date.today().isoformat()})", ""]
     if stale:
         names = ", ".join(s["name"] for s in stale)
         lines += [f"{len(stale)} source(s) not updating: {names}", ""]
@@ -254,8 +319,9 @@ def render_digest(feed, items, stale):
             lines.append(f"    indirect capped at {it['indirect_cap']}")
         lines.append(f"    {it['rationale']}")
         if it.get("match_name"):
-            lines.append(f"    closest fit: {it['match_name']} — {it.get('match_project','')} "
-                         f"({it.get('match_status','')})")
+            area = f" [{it['match_domain']}]" if it.get("match_domain") else ""
+            lines.append(f"    closest fit: {it['match_name']}{area}, "
+                         f"{it.get('match_project','')} ({it.get('match_status','')})")
         lines.append(f"    {it['url']}")
         lines.append("")
     return "\n".join(lines)

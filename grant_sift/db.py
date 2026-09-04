@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sources (
     last_run      TEXT,
     last_success  TEXT,
     last_yield    INTEGER DEFAULT 0,
+    zero_streak   INTEGER DEFAULT 0,  -- consecutive successful runs that yielded nothing
     last_error    TEXT
 );
 
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS assessments (
     category         TEXT,
     rationale        TEXT,
     match_name       TEXT,
+    match_domain     TEXT,
     match_project    TEXT,
     match_status     TEXT,
     match_rationale  TEXT,
@@ -92,6 +94,14 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
+    if "zero_streak" not in cols:
+        conn.execute("ALTER TABLE sources ADD COLUMN zero_streak INTEGER DEFAULT 0")
+        conn.commit()
+    acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
+    if "match_domain" not in acols:
+        conn.execute("ALTER TABLE assessments ADD COLUMN match_domain TEXT")
+        conn.commit()
     return conn
 
 
@@ -136,6 +146,19 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
         )
         return True
 
+    # A search response is thinner than a detail fetch: grants.gov search2
+    # returns no description and no award ceiling. Letting a later thin record
+    # blank out an enriched one would both lose the data and change
+    # content_hash every day, deleting the assessment and re-spending on the
+    # model each run. So keep the richer value and hash what is actually stored.
+    stored = conn.execute(
+        """SELECT synopsis, deadline, award_ceiling, indirect_cap
+           FROM opportunities WHERE id = ?""", (rec["id"],)
+    ).fetchone()
+    merged = {k: (rec.get(k) or stored[k])
+              for k in ("synopsis", "deadline", "award_ceiling", "indirect_cap")}
+    content_hash = hash_text(rec.get("title"), merged["synopsis"], merged["deadline"])
+
     changed = existing["content_hash"] != content_hash
     conn.execute(
         """UPDATE opportunities
@@ -143,9 +166,9 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
                award_ceiling=?, indirect_cap=?, content_hash=?
            WHERE id=?""",
         (
-            ts, rec["title"], rec.get("synopsis"), rec.get("deadline"),
-            rec.get("agency"), rec.get("url"), rec.get("award_ceiling"),
-            rec.get("indirect_cap"), content_hash, rec["id"],
+            ts, rec["title"], merged["synopsis"], merged["deadline"],
+            rec.get("agency"), rec.get("url"), merged["award_ceiling"],
+            merged["indirect_cap"], content_hash, rec["id"],
         ),
     )
     if changed:
@@ -154,17 +177,48 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
     return changed
 
 
+def needs_detail(conn, opp_id: str) -> bool:
+    """True when we have never stored a description for this opportunity.
+
+    Gates the per-opportunity detail fetch so it happens once in the life of a
+    record rather than every morning.
+    """
+    row = conn.execute(
+        "SELECT synopsis FROM opportunities WHERE id = ?", (opp_id,)
+    ).fetchone()
+    return row is None or not (row["synopsis"] or "").strip()
+
+
 def record_source_run(conn, name, kind, url, ok, yielded=0, error=None):
+    """Record one source run, maintaining the consecutive zero-yield streak.
+
+    Done in Python rather than a CASE expression because the streak depends on
+    the previous row, and getting that wrong is how the stale banner goes quiet.
+    """
     ts = now()
+    prev = conn.execute(
+        "SELECT zero_streak FROM sources WHERE name = ?", (name,)
+    ).fetchone()
+    prev_streak = (prev["zero_streak"] or 0) if prev else 0
+
+    if not ok:
+        streak = prev_streak          # a hard failure is already visible via last_error
+    elif yielded == 0:
+        streak = prev_streak + 1      # succeeded and returned nothing: the quiet failure
+    else:
+        streak = 0
+
     conn.execute(
-        """INSERT INTO sources (name, kind, url, last_run, last_success, last_yield, last_error)
-           VALUES (?,?,?,?,?,?,?)
+        """INSERT INTO sources
+             (name, kind, url, last_run, last_success, last_yield, zero_streak, last_error)
+           VALUES (?,?,?,?,?,?,?,?)
            ON CONFLICT(name) DO UPDATE SET
              last_run=excluded.last_run,
              last_success=CASE WHEN ? THEN excluded.last_success ELSE sources.last_success END,
              last_yield=excluded.last_yield,
+             zero_streak=excluded.zero_streak,
              last_error=excluded.last_error""",
-        (name, kind, url, ts, ts if ok else None, yielded, error, 1 if ok else 0),
+        (name, kind, url, ts, ts if ok else None, yielded, streak, error, 1 if ok else 0),
     )
 
 
@@ -194,25 +248,37 @@ def unassessed(conn, limit: int = 200):
 def save_assessment(conn, opp_id: str, a: dict, model: str, input_hash: str):
     conn.execute(
         """INSERT OR REPLACE INTO assessments
-           (opportunity_id, score, category, rationale, match_name, match_project,
-            match_status, match_rationale, model, input_hash, assessed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           (opportunity_id, score, category, rationale, match_name, match_domain,
+            match_project, match_status, match_rationale, model, input_hash, assessed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             opp_id, a.get("score") if a.get("score") is not None else 0,
             a.get("category") or "not_relevant", a.get("rationale"),
-            a.get("match_name"), a.get("match_project"), a.get("match_status"),
+            a.get("match_name"), a.get("match_domain"),
+            a.get("match_project"), a.get("match_status"),
             a.get("match_rationale"), model, input_hash, now(),
         ),
     )
 
 
-def stale_sources(conn, days: int = 30):
-    """A source that quietly stops yielding is the real failure mode, not a crash."""
+def stale_sources(conn, days: int = 30, zero_runs: int = 3):
+    """A source that quietly stops yielding is the real failure mode, not a crash.
+
+    Three ways to be stale, not one:
+      - never succeeded
+      - last success older than `days`
+      - succeeded `zero_runs` times in a row while returning nothing. A fresh
+        last_success with an empty list is the case that used to hide: the NSF
+        adapter and any bot-walled page report success and vanish from view.
+        Requiring a streak keeps a genuinely quiet week from crying wolf.
+    """
     return conn.execute(
-        """SELECT name, last_success, last_error FROM sources
+        """SELECT name, last_success, last_error, last_yield, zero_streak
+           FROM sources
            WHERE last_success IS NULL
-              OR julianday('now') - julianday(last_success) > ?""",
-        (days,),
+              OR julianday('now') - julianday(last_success) > ?
+              OR zero_streak >= ?""",
+        (days, zero_runs),
     ).fetchall()
 
 
