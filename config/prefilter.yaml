@@ -1,0 +1,67 @@
+# Deterministic, free, runs before any model call. Kills most of the volume.
+#
+# Rule of thumb: only exclude what you are certain about. A false exclusion here
+# is invisible — it never reaches the classifier and never appears in a digest.
+# A false inclusion costs a fraction of a cent.
+
+min_keyword_hits: 1
+
+include_keywords:
+  - software
+  - cyberinfrastructure
+  - data management
+  - data infrastructure
+  - computational
+  - computing
+  - workflow
+  - pipeline
+  - reproducib
+  - open source
+  - high performance computing
+  - hpc
+  - gpu
+  - machine learning
+  - artificial intelligence
+  - database
+  - repository
+  - platform
+  - tool development
+  - sustainability
+  - curation
+  - visualization
+  - visualisation
+  - geospatial
+  - simulation
+  - api
+
+# Anything from these funders goes to the classifier regardless of keywords —
+# their calls are few and often worth reading in full.
+agency_allowlist:
+  - National Science Foundation
+  - Department of Energy
+  - Chan Zuckerberg
+  - Sloan
+  - Moore Foundation
+  - Schmidt
+  - Mellon
+  - Wellcome
+  - Kavli
+  - Alpha-Omega
+  - Sovereign Tech
+  - NumFOCUS
+
+# Sources curated by humans elsewhere — assess everything they surface.
+always_assess_sources:
+  - fnd:
+  - CURIOSS
+  - ReSA
+
+# Regex, matched against lowercased title + synopsis.
+exclude_patterns:
+  - "\\bconstruction of (a )?(building|facility)\\b"
+  - "\\bscholarship for undergraduate students\\b"
+  - "\\bdissertation improvement\\b"
+  - "\\btravel award\\b"
+  - "\\bclinical trial recruitment\\b"
+  - "\\bsmall business innovation research\\b"   # SBIR: not eligible as a university
+  - "\\bsmall business technology transfer\\b"

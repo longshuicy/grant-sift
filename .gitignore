@@ -1,0 +1,20 @@
+# Generated state — all of it is rebuildable with `python run.py daily`
+bellwether.db
+bellwether.db-journal
+bellwether.db-wal
+bellwether.db-shm
+web/opportunities.json
+run.log
+
+# Secrets: the three BELLWETHER_LLM_* gateway vars live here, never in git
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# macOS
+.DS_Store

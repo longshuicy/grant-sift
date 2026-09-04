@@ -1,0 +1,53 @@
+# Past and current collaborations. This file decides whether Bellwether is
+# useful, so keep it easy to edit — any RSE should be able to add a line
+# with a pull request.
+#
+# status: warm | cold | do-not-contact
+#   warm          we would call them tomorrow
+#   cold          real past work, but the relationship has gone quiet
+#   do-not-contact  do not surface, for whatever reason
+
+# ---- REPLACE EVERYTHING BELOW WITH REAL ENTRIES ----
+
+- domain: public health
+  collaborator: Y. Chen (PI, Epidemiology)
+  project: Project X — outbreak surveillance pipeline
+  years: 2021-2024
+  our_role: data ingest pipeline, deployment, public dashboard
+  funders: [NIH, IDPH]
+  status: warm
+  notes: prefers small allocations; renewal cycle in spring
+
+- domain: arctic and permafrost science
+  collaborator: Permafrost Discovery Gateway team
+  project: annual satellite imagery analysis for permafrost thaw
+  years: 2019-present
+  our_role: large-scale inference pipeline, workflow orchestration, data products
+  funders: [NSF]
+  status: warm
+
+- domain: hydrology
+  collaborator: R. Alvarez (PI, Civil and Environmental Engineering)
+  project: watershed model coupling and calibration
+  years: 2020-2022
+  our_role: HPC porting, containerisation, reproducible builds
+  funders: [NSF, USDA]
+  status: cold
+  notes: went quiet after the award ended; worth re-opening
+
+- domain: digital humanities
+  collaborator: S. Okafor (PI, History)
+  project: archival image auto-curation
+  years: 2018-2021
+  our_role: metadata inference, search interface, long-term data hosting
+  funders: [NEH, Mellon]
+  status: warm
+  notes: low budget tolerance; good candidate for foundation money
+
+- domain: materials science
+  collaborator: T. Brandt (PI, MatSE)
+  project: simulation surrogate models
+  years: 2022-present
+  our_role: training pipeline, uncertainty quantification, GPU optimisation
+  funders: [DOE]
+  status: warm

@@ -1,0 +1,95 @@
+# Every source Bellwether reads. Nothing is discovered by following links —
+# if it is not in this file, it is not fetched.
+
+keywords:
+  - research software
+  - cyberinfrastructure
+  - scientific software
+  - data management
+  - computational infrastructure
+  - software sustainability
+  - high performance computing
+  - workflow
+  - reproducibility
+  - open source software
+
+grants_gov:
+  enabled: true
+  # Leave empty for all agencies. Narrow it once you see the volume.
+  agencies: []
+
+nsf:
+  enabled: true
+
+feeds:
+  - name: CURIOSS
+    url: https://curioss.org/resources/funding-opportunities/feed.xml
+  - name: ReSA
+    url: https://www.researchsoft.org/blog/index.xml
+
+# Fixed list. Add a source only when one of these misses something you
+# would have wanted. Fifteen is plenty to start.
+foundations:
+  - name: Chan Zuckerberg Initiative
+    url: https://chanzuckerberg.com/rfa/
+    cadence: weekly
+    notes: EOSS runs co-funded with Wellcome and Kavli
+
+  - name: Alfred P. Sloan Foundation
+    url: https://sloan.org/programs
+    cadence: weekly
+
+  - name: Gordon and Betty Moore Foundation
+    url: https://www.moore.org/grants
+    cadence: weekly
+
+  - name: Schmidt Sciences
+    url: https://www.schmidtsciences.org/programs/
+    cadence: weekly
+
+  - name: Simons Foundation
+    url: https://www.simonsfoundation.org/funding-opportunities/
+    cadence: weekly
+
+  - name: Mellon Foundation
+    url: https://www.mellon.org/grants/grant-opportunities
+    cadence: weekly
+    notes: the humanities and digital scholarship lane
+
+  - name: Alpha-Omega
+    url: https://alpha-omega.dev/
+    cadence: monthly
+    notes: open source security; scientific stack is uncovered
+
+  - name: Sovereign Tech Agency
+    url: https://www.sovereign.tech/programs
+    cadence: monthly
+
+  - name: Wellcome Trust
+    url: https://wellcome.org/research-funding/schemes
+    cadence: weekly
+
+  - name: Kavli Foundation
+    url: https://www.kavlifoundation.org/grants
+    cadence: monthly
+
+  - name: NumFOCUS
+    url: https://numfocus.org/programs
+    cadence: monthly
+
+  - name: Code for Science and Society
+    url: https://codeforscience.org/
+    cadence: monthly
+
+  - name: Arnold Ventures
+    url: https://www.arnoldventures.org/grants
+    cadence: monthly
+
+  - name: David and Lucile Packard Foundation
+    url: https://www.packard.org/what-we-fund/
+    cadence: monthly
+
+  - name: Illinois Research Board
+    url: https://research.illinois.edu/funding-opportunities
+    cadence: weekly
+    notes: internal campus money; never appears in any national database
