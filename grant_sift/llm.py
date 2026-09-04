@@ -7,18 +7,46 @@ import time
 
 import requests
 
-BASE_URL = os.environ.get("GRANT_SIFT_LLM_BASE_URL", "https://api.anthropic.com/v1")
+# NCSA Lumen, the default gateway: a self-hosted OpenAI-compatible proxy.
+# BASE_URL is the prefix only — "/chat/completions" is appended below.
+DEFAULT_BASE_URL = "https://lumen.ncsa.illinois.edu/v1"
+
+# Lumen proxies different backends per deployment, so a default model id is a
+# guess about that routing table, not a fact. Confirm it is in /v1/models and
+# override GRANT_SIFT_LLM_MODEL if your key routes elsewhere.
+DEFAULT_MODEL = "glm-5.2"
+
+BASE_URL = os.environ.get("GRANT_SIFT_LLM_BASE_URL", DEFAULT_BASE_URL)
 API_KEY = os.environ.get("GRANT_SIFT_LLM_API_KEY", "")
-MODEL = os.environ.get("GRANT_SIFT_LLM_MODEL", "claude-sonnet-4-6")
+MODEL = os.environ.get("GRANT_SIFT_LLM_MODEL") or DEFAULT_MODEL
 TIMEOUT = int(os.environ.get("GRANT_SIFT_LLM_TIMEOUT", "120"))
+
+
+def _require_config():
+    """Fail once, clearly, instead of retrying three times into a 400."""
+    if API_KEY:
+        return
+    raise RuntimeError(
+        "LLM gateway not configured: GRANT_SIFT_LLM_API_KEY is unset.\n"
+        "Needs a Lumen project key ('sk_...'), generated in the Lumen UI —\n"
+        "a machine-to-machine key, not your OAuth login.\n\n"
+        f"Gateway is {BASE_URL}\n"
+        f"Model is {MODEL}\n"
+        "Check that model is one your key can reach:\n"
+        f'  curl -sS "{BASE_URL.rstrip("/")}/models" '
+        '-H "Authorization: Bearer $GRANT_SIFT_LLM_API_KEY"\n'
+        "See .env.example."
+    )
 
 
 def _post(messages, system, max_tokens=2000, retries=3):
     """OpenAI-compatible chat completions. Point BASE_URL at your in-house gateway."""
+    _require_config()
     url = f"{BASE_URL.rstrip('/')}/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}",
+    }
     payload = {
         "model": MODEL,
         "max_tokens": max_tokens,

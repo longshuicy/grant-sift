@@ -15,9 +15,13 @@ partner and does not yet know it.
 ```bash
 pip install -r requirements.txt
 
-export GRANT_SIFT_LLM_BASE_URL="https://your-gateway/v1"   # OpenAI-compatible
-export GRANT_SIFT_LLM_API_KEY="..."
-export GRANT_SIFT_LLM_MODEL="..."
+# Defaults to NCSA Lumen; override BASE_URL for any OpenAI-compatible gateway.
+export GRANT_SIFT_LLM_API_KEY="sk_..."      # Lumen project key, from the Lumen UI
+# GRANT_SIFT_LLM_MODEL defaults to glm-5.2; override if your key routes elsewhere
+
+# Which models can this key reach?
+curl -sS "https://lumen.ncsa.illinois.edu/v1/models" \
+     -H "Authorization: Bearer $GRANT_SIFT_LLM_API_KEY"
 
 python run.py daily
 python -m http.server -d web 8080      # then open localhost:8080
