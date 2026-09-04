@@ -218,11 +218,41 @@ render on the row.
 
 ## Cost
 
-After the prefilter you are sending a few hundred opportunities to the model on
-the first run at a couple of thousand tokens each, then only new postings each
-day. Cents per day in steady state. The first `assess` after a fresh ingest is
-the largest single spend, which is why `--limit` exists: run a small batch, look
-at the scores and the roster matches, then let the rest through.
+The gateway bills input and output separately, and there is no prompt caching
+on Lumen: an identical prefix on a repeat call reports zero cached tokens. So
+the roster, about 4,500 tokens, is paid for on every assess call. At 49 roster
+entries that is roughly three quarters of each prompt.
+
+Two settings dominate the bill, and both are in `.env`.
+
+**Chain of thought is billed as output, and this task does not need it.**
+`GRANT_SIFT_LLM_THINKING=off` is the default. On glm-5.2 it cut completion
+tokens from about 1,350 to 180 per call with identical scores. It also fixes a
+real failure: reasoning tokens count against `max_tokens`, so at the old budget
+of 800 the model spent the entire allowance thinking, returned empty content,
+and every record scored 0.
+
+**Model choice is worth more than any prompt tuning.** Benchmarked on real
+records from this pipeline on 2026-09-04, thinking off, cost shown for a full
+597-record pass in Lumen coins:
+
+| Model | Scores vs glm-5.2 | Coins | Notes |
+| --- | --- | --- | --- |
+| gemma-4-31b-it | identical | 0.57 | best value, no acknowledgment needed |
+| deepseek-v4-flash | lower | 0.50 | missed a roster match |
+| nemotron-3-super-120b-a12b | close | 0.63 | slightly generous |
+| ornith-1.0-35b | much lower | 0.17 | missed a match, would push real calls under the cutoff |
+| glm-5.2 | baseline | 4.10 | 7.6 with thinking on |
+
+All five returned valid JSON. That was three opportunities in one subject area,
+so treat it as a shortlist rather than a verdict: re-run it on a wider sample
+before settling, and remember `ornith` scoring 25 where glm scored 50 would
+have dropped that call below the export cutoff entirely.
+
+If the roster grows past a few hundred entries, the cheaper structural fix is
+to split assessment in two: score and categorise without the roster, then send
+the roster only for records that clear the threshold. At current volumes that
+complexity is not worth it.
 
 One small VM or a scheduled CI job is the right size for this; anything more is
 more infrastructure than the thing it runs.

@@ -21,6 +21,31 @@ API_KEY = os.environ.get("GRANT_SIFT_LLM_API_KEY", "")
 MODEL = os.environ.get("GRANT_SIFT_LLM_MODEL") or DEFAULT_MODEL
 TIMEOUT = int(os.environ.get("GRANT_SIFT_LLM_TIMEOUT", "120"))
 
+# Reasoning models (glm-5.2 among them) bill their thinking against max_tokens
+# and return it in a separate `reasoning_content` field. At max_tokens=800 the
+# assess prompt spent the entire budget on reasoning and returned empty
+# content, so every record scored 0 with "unparseable response". Measured: the
+# assess call needs roughly 1,100 reasoning tokens plus about 250 of JSON.
+ASSESS_MAX_TOKENS = int(os.environ.get("GRANT_SIFT_LLM_MAX_TOKENS", "4000"))
+
+# Chain of thought is billed as output and, at a tight budget, can consume the
+# whole allowance before any JSON is emitted. This task does not benefit from
+# it: the answer is a score, a category and a roster match. Measured on
+# glm-5.2 over real records, completion tokens fell from about 1,350 to 180
+# with identical scores. Set GRANT_SIFT_LLM_THINKING=on to restore it.
+THINKING = os.environ.get("GRANT_SIFT_LLM_THINKING", "off").strip().lower() in (
+    "1", "on", "true", "yes")
+EXTRACT_MAX_TOKENS = int(os.environ.get("GRANT_SIFT_LLM_EXTRACT_MAX_TOKENS", "8000"))
+
+
+class TruncatedResponse(RuntimeError):
+    """The budget ran out before the model emitted any answer.
+
+    Not retryable: the same request with the same budget fails identically, so
+    retrying only spends tokens. Raised rather than returned so the caller
+    leaves the record unassessed and picks it up next run.
+    """
+
 
 def _require_config():
     """Fail once, clearly, instead of retrying three times into a 400."""
@@ -53,12 +78,31 @@ def _post(messages, system, max_tokens=2000, retries=3):
         "temperature": 0,
         "messages": [{"role": "system", "content": system}] + messages,
     }
+    if not THINKING:
+        # Understood by the vLLM/SGLang-style backends Lumen proxies. Gateways
+        # that do not recognise it ignore it; if yours rejects unknown fields,
+        # set GRANT_SIFT_LLM_THINKING=on.
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     last = None
     for attempt in range(retries):
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=TIMEOUT)
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
+            data = r.json()
+            choice = (data.get("choices") or [{}])[0]
+            content = ((choice.get("message") or {}).get("content") or "").strip()
+            if content:
+                return content
+            usage = data.get("usage") or {}
+            raise TruncatedResponse(
+                f"model returned no content (finish_reason="
+                f"{choice.get('finish_reason')}, reasoning_tokens="
+                f"{usage.get('reasoning_tokens')}, max_tokens={max_tokens}). "
+                "A reasoning model spent the whole budget thinking; raise "
+                "GRANT_SIFT_LLM_MAX_TOKENS."
+            )
+        except TruncatedResponse:
+            raise                      # deterministic, so do not burn retries
         except Exception as exc:  # noqa: BLE001
             last = exc
             time.sleep(2 ** attempt)
@@ -114,7 +158,7 @@ def extract_calls(page_text: str, source_name: str) -> list:
     out = _post(
         [{"role": "user", "content": f"Source: {source_name}\n\n---\n{text}"}],
         EXTRACT_SYSTEM,
-        max_tokens=4000,
+        max_tokens=EXTRACT_MAX_TOKENS,
     )
     result = _json(out, [])
     return result if isinstance(result, list) else []
@@ -185,18 +229,22 @@ def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
         f"Award ceiling: {opportunity.get('award_ceiling')}\n"
         f"Synopsis: {(opportunity.get('synopsis') or '')[:6000]}"
     )
-    out = _post([{"role": "user", "content": "\n\n".join(parts)}], ASSESS_SYSTEM, max_tokens=800)
+    out = _post([{"role": "user", "content": "\n\n".join(parts)}], ASSESS_SYSTEM,
+                max_tokens=ASSESS_MAX_TOKENS)
     result = _json(out, {})
     # _json returns its default ({}) when parsing fails, and an empty dict is a
-    # dict -- so an isinstance check alone lets a scoreless result through and
-    # stores an all-NULL assessment row. Require a usable score.
+    # dict, so an isinstance check alone lets a scoreless result through.
+    #
+    # Raise rather than returning a score of 0. A 0 is indistinguishable from a
+    # real judgement, sits below the export cutoff, and is never re-assessed,
+    # so a parse failure would bury a live opportunity permanently. Raising
+    # leaves the record unassessed and it is retried on the next run.
     if not isinstance(result, dict) or result.get("score") is None:
-        return {"score": 0, "category": "not_relevant", "rationale": "unparseable response"}
+        raise ValueError(f"no score in model response: {str(out)[:200]!r}")
     try:
         result["score"] = max(0, min(100, int(float(result["score"]))))
     except (TypeError, ValueError):
-        return {"score": 0, "category": "not_relevant",
-                "rationale": f"non-numeric score: {result.get('score')!r}"}
+        raise ValueError(f"non-numeric score {result.get('score')!r}")
     return result
 
 
