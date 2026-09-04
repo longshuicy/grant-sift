@@ -6,36 +6,212 @@
 
 min_keyword_hits: 1
 
+# Substring matched, case-insensitively, against lowercased title + synopsis.
+# Loose on purpose: a false exclusion here is invisible and permanent, a false
+# inclusion costs a fraction of a cent. Expect to tighten this, not loosen it.
+#
+# Two-letter tokens are deliberately absent — "ui" matches "building" and
+# "circuit", "ux" matches "flux". Note that "api" below already behaves this way
+# (it matches "rapid", "capital", "therapies"); it is kept because the cost of
+# over-matching is a cent, but do not add more of that shape. "etl" and "gis"
+# were dropped for exactly this reason -- they matched "wetland" and "registry"
+# while adding no recall that the longer terms do not already give.
+#
+# Grouped to mirror the software leads' specialties, so it is obvious where a
+# new term belongs.
 include_keywords:
+  # core research software and sustainability
   - software
   - cyberinfrastructure
+  - open source
+  - reproducib
+  - sustainability
+  - software engineering
+  - research computing
+  - code
+  - toolkit
+  - tool development
+  - library
+  - framework
+
+  # data management and engineering (Research Data Engineering)
   - data management
   - data infrastructure
+  - data engineering
+  - data curation
+  - curation
+  - database
+  - repository
+  - data platform
+  - data sharing
+  - data quality
+  - metadata
+  - ontology
+  - controlled vocabulary
+  - interoperab
+  - fair data
+  - data standard
+  - schema
+  - provenance
+  - archive
+  - archival
+  - long-term preservation
+  - digital preservation
+  - data warehouse
+  - data lake
+  - streaming data
+  - sensor data
+  - observational data
+  - field data
+
+  # computation, workflow and HPC
   - computational
   - computing
   - workflow
   - pipeline
-  - reproducib
-  - open source
+  - simulation
   - high performance computing
   - hpc
   - gpu
+  - parallel computing
+  - cloud computing
+  - container
+  - kubernetes
+  - scalable
+  - throughput
+  - numerical
+  - modeling
+  - modelling
+  - surrogate model
+  - uncertainty quantification
+  - digital twin
+
+  # AI and ML
   - machine learning
   - artificial intelligence
-  - database
-  - repository
-  - platform
-  - tool development
-  - sustainability
-  - curation
+  - deep learning
+  - neural network
+  - foundation model
+  - large language model
+  - natural language processing
+  - computer vision
+  - image analysis
+  - image processing
+  - segmentation
+  - classification model
+  - predictive model
+
+  # visualization and visual analytics (Visual Analytics)
   - visualization
   - visualisation
+  - visual analytics
+  - scientific visualization
+  - dashboard
+  - interactive map
+  - mapping
+  - webgl
+  - 3d
+  - rendering
+  - immersive
+  - virtual reality
+  - augmented reality
+
+  # geospatial and remote sensing
   - geospatial
-  - simulation
+  - geographic information
+  - remote sensing
+  - satellite
+  - earth observation
+  - spatial analysis
+  - spatio-temporal
+
+  # human-centred design (UI/UX)
+  - user interface
+  - user experience
+  - usability
+  - human-centered
+  - human-centred
+  - user-centered
+  - co-design
+  - participatory design
+  - accessibility
+  - design research
+
+  # software delivery and deployment (Software Design, Delivery and Deploy)
+  - devops
+  - continuous integration
+  - deployment
+  - packaging
+  - containerization
+  - containerisation
+  - testing framework
+  - software quality
+  - version control
+  - maintenance
+
+  # platforms, gateways, APIs (Software Applications and Data Lab;
+  # Tools for Research Institutes and Infrastructure)
+  - platform
+  - science gateway
+  - gateway
+  - portal
+  - web application
   - api
+  - microservice
+  - knowledge graph
+  - semantic web
+  - linked data
+  - search interface
+  - discovery interface
+  - research infrastructure
+  - shared instrumentation
+  - core facility
+  - instrumentation
+
+  # learning technologies (Research Software Applications and Learning
+  # Technologies)
+  - learning technology
+  - educational technology
+  - e-learning
+  - online learning
+  - curriculum development
+  - training module
+  - workforce development
+  - broadening participation
+  - research training
+
+  # domain vocabulary drawn from the roster — these are how an embedded
+  # software requirement usually announces itself inside a domain call
+  - phenotyping
+  - genomics
+  - bioinformatics
+  - biofoundry
+  - synthetic biology
+  - medical imaging
+  - surveillance system
+  - digital humanities
+  - text mining
+  - crowdsourcing
+  - citizen science
+  - decision support
+  - early warning
+  - monitoring network
+  - observatory
+  - resilience
+  - hazard
+  - watershed
+  - hydrologic
+  - critical zone
+  - ecosystem model
+  - carbon accounting
+  - emissions monitoring
 
 # Anything from these funders goes to the classifier regardless of keywords —
 # their calls are few and often worth reading in full.
+# Matched against rec["agency"]. Foundation adapters set agency to the source
+# name, so every foundation in sources.yaml must appear here — otherwise a call
+# we already paid the model to extract can still be dropped for want of a
+# keyword, which is the one loss this pipeline should never take.
 agency_allowlist:
   - National Science Foundation
   - Department of Energy
@@ -43,16 +219,29 @@ agency_allowlist:
   - Sloan
   - Moore Foundation
   - Schmidt
+  - Simons Foundation
   - Mellon
   - Wellcome
   - Kavli
   - Alpha-Omega
   - Sovereign Tech
   - NumFOCUS
+  - Code for Science and Society
+  - Arnold Ventures
+  - Packard
+  - Illinois Research Board
 
 # Sources curated by humans elsewhere — assess everything they surface.
+# Matched with str.startswith against rec["source"]. MUST be quoted: a bare
+# `- fnd:` is YAML for the dict {fnd: None}, which made startswith() raise
+# TypeError and take the whole source down with it.
+#
+# NOTE "fnd:" is currently a no-op: it is the prefix of rec["id"], not of
+# rec["source"], which adapters set to the foundation's name. Foundations are
+# covered by agency_allowlist above instead. Left here, quoted and harmless,
+# only so the intent is visible.
 always_assess_sources:
-  - fnd:
+  - "fnd:"
   - CURIOSS
   - ReSA
 

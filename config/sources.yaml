@@ -1,17 +1,62 @@
 # Every source Grant Sift reads. Nothing is discovered by following links —
 # if it is not in this file, it is not fetched.
 
+# QUERY terms, not filter terms. Each one costs a separate Grants.gov POST and
+# NSF GET, and each is capped at `rows` results (200 / 100). A term broad enough
+# to exceed that cap is silently truncated — which is the "reports success while
+# going incomplete" failure this tool exists to avoid. So keep these specific and
+# discriminating, and put the loose vocabulary in prefilter.yaml instead, where a
+# false positive costs a fraction of a cent rather than a missed call.
+#
+# This is the recall gate: nothing matching none of these is ever fetched, and no
+# prefilter tuning can recover it. Grouped by the specialty each term serves.
 keywords:
+  # core research software / cyberinfrastructure
   - research software
   - cyberinfrastructure
   - scientific software
-  - data management
-  - computational infrastructure
   - software sustainability
+  - open source software
+  - software engineering
+  - research computing
+
+  # data management and engineering (Research Data Engineering)
+  - data management
+  - research data infrastructure
+  - data curation
+  - data engineering
+  - metadata standards
+  - data interoperability
+
+  # computation and workflow
+  - computational infrastructure
   - high performance computing
+  - scientific workflow
   - workflow
   - reproducibility
-  - open source software
+
+  # visualization and visual analytics (Visual Analytics)
+  - scientific visualization
+  - visual analytics
+  - geospatial analysis
+  - remote sensing
+  - image analysis
+
+  # platforms, gateways and research infrastructure (Tools for Research
+  # Institutes and Infrastructure; Software Applications and Data Lab)
+  - science gateway
+  - research infrastructure
+  - knowledge graph
+  - digital twin
+
+  # human-centred design (UI/UX)
+  - human-centered design
+  - user-centered design
+
+  # learning technologies (Research Software Applications and Learning
+  # Technologies)
+  - learning technology
+  - educational technology
 
 grants_gov:
   enabled: true
