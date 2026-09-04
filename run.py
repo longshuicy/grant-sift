@@ -119,6 +119,14 @@ def cmd_status(conn, args):
 
 
 def main():
+    # Python block-buffers stdout when it is not a terminal, so a run under
+    # `>> run.log` or cron shows nothing until the process exits. For a job that
+    # takes half an hour that makes it impossible to tell working from hung.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass                      # not a real stream, e.g. under some runners
+
     p = argparse.ArgumentParser(prog="grant-sift")
     p.add_argument("--config", default="config")
     p.add_argument("--db", default=DB_PATH)

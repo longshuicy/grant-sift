@@ -59,6 +59,10 @@ def prefilter_pass(rec, rules):
 # opportunity is fetched once in its life, not once a morning.
 ENRICH_SOURCES = ("grants.gov",)
 
+# How often long loops flush their work to disk. Small enough that an
+# interruption loses seconds of progress, large enough not to fsync per record.
+COMMIT_EVERY = 10
+
 
 def _enrich(conn, rec, stats, verbose):
     """Fill in description and award figures from the per-opportunity endpoint.
@@ -94,7 +98,7 @@ def _enrich(conn, rec, stats, verbose):
         db.save_detail(conn, rec["id"], {}, ok=False)
         stats["detail_failed"] += 1
         if verbose and stats["detail_failed"] <= 3:
-            print(f"    detail fetch failed for {rec['id']}: {str(exc)[:70]}")
+            print(f"    detail fetch failed for {rec['id']}: {str(exc)[:70]}", flush=True)
         return
 
     db.save_detail(conn, rec["id"], detail, ok=True)
@@ -104,7 +108,7 @@ def _enrich(conn, rec, stats, verbose):
             rec[k] = v
     # Commit periodically so a long first pass is resumable: interrupting it
     # must not throw away the fetches already paid for.
-    if stats["enriched"] % 50 == 0:
+    if stats["enriched"] % (COMMIT_EVERY * 5) == 0:
         conn.commit()
 
 
@@ -135,11 +139,11 @@ def ingest(conn, sources, prefilter, verbose=True):
             stats["kept"] += kept
             db.record_source_run(conn, name, kind, url, True, kept)
             if verbose:
-                print(f"  {name:38s} {len(records):4d} fetched  {kept:3d} kept")
+                print(f"  {name:38s} {len(records):4d} fetched  {kept:3d} kept", flush=True)
         except Exception as exc:  # noqa: BLE001
             db.record_source_run(conn, name, kind, url, False, 0, str(exc)[:400])
             if verbose:
-                print(f"  {name:38s} FAILED: {str(exc)[:90]}")
+                print(f"  {name:38s} FAILED: {str(exc)[:90]}", flush=True)
 
     if sources.get("grants_gov", {}).get("enabled"):
         cfg = sources["grants_gov"]
@@ -229,21 +233,37 @@ def assess_new(conn, roster, limit=200, verbose=True):
     corrections = llm.format_corrections(db.few_shot_corrections(conn))
 
     done = 0
-    for row in pending:
-        opp = dict(row)
-        try:
-            result = llm.assess(opp, block, corrections)
-        except Exception as exc:  # noqa: BLE001
-            if verbose:
-                print(f"  assess failed for {opp['id']}: {str(exc)[:80]}")
-            continue
-        result = _resolve_domain(result, roster)
-        db.save_assessment(conn, opp["id"], result, llm.MODEL,
-                           db.hash_text(opp["title"], opp.get("synopsis")))
-        done += 1
-        if verbose and done % 10 == 0:
-            print(f"  assessed {done}/{len(pending)}")
-    conn.commit()
+    # Commit as we go. A full pass is hundreds of model calls over tens of
+    # minutes, and every one is money already spent; holding them in a single
+    # transaction means a Ctrl+C, a dropped connection or a killed process
+    # throws away the lot. The finally block covers a clean exit and an
+    # interrupt, and the periodic commit covers a hard kill that never unwinds.
+    # Each saved row is self-contained, so committing early is always safe, and
+    # re-running assess simply picks up whatever is still unassessed.
+    try:
+        for row in pending:
+            opp = dict(row)
+            try:
+                result = llm.assess(opp, block, corrections)
+            except Exception as exc:  # noqa: BLE001
+                if verbose:
+                    print(f"  assess failed for {opp['id']}: {str(exc)[:80]}", flush=True)
+                continue
+            result = _resolve_domain(result, roster)
+            db.save_assessment(conn, opp["id"], result, llm.MODEL,
+                               db.hash_text(opp["title"], opp.get("synopsis")))
+            done += 1
+            if done % COMMIT_EVERY == 0:
+                conn.commit()
+            if verbose and done % 10 == 0:
+                print(f"  assessed {done}/{len(pending)}", flush=True)
+    except KeyboardInterrupt:
+        if verbose:
+            print(f"\n  interrupted after {done} assessed; keeping them. "
+                  "Re-run assess to continue where this left off.", flush=True)
+        raise
+    finally:
+        conn.commit()
     return done
 
 
