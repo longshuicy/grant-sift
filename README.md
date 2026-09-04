@@ -1,25 +1,30 @@
 # Grant Sift
 
 Funding signal for a research software group. It reads Grants.gov, NSF, a fixed
-list of foundation pages, and a couple of RSS feeds; scores each opportunity for
-RSE relevance; matches it against your roster of past collaborators; and puts the
+list of foundation pages, and an RSS feed; scores each opportunity for RSE
+relevance; matches it against your roster of past collaborators; and puts the
 result in a static dashboard and a set of email digests.
 
 The point is not to find the obvious cyberinfrastructure calls, everyone sees
-those, which is why they are crowded. It is to find the domain solicitation with a
-software or data-management requirement buried inside it, where a PI will need a
-partner and does not yet know it.
+those, which is why they are crowded. It is to find the domain solicitation with
+a software or data-management requirement buried inside it, where a PI will need
+a partner and does not yet know it.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
 
-# Defaults to NCSA Lumen; override BASE_URL for any OpenAI-compatible gateway.
-export GRANT_SIFT_LLM_API_KEY="sk_..."      # Lumen project key, from the Lumen UI
-# GRANT_SIFT_LLM_MODEL defaults to glm-5.2; override if your key routes elsewhere
+cp .env.example .env      # then fill in your Lumen project key
+set -a; source .env; set +a
+```
 
-# Which models can this key reach?
+The gateway defaults to NCSA Lumen, an OpenAI-compatible proxy, so the only
+required value is the key. `GRANT_SIFT_LLM_MODEL` defaults to `glm-5.2`.
+Override `GRANT_SIFT_LLM_BASE_URL` for any other OpenAI-compatible gateway.
+
+```bash
+# Which models can this key actually reach?
 curl -sS "https://lumen.ncsa.illinois.edu/v1/models" \
      -H "Authorization: Bearer $GRANT_SIFT_LLM_API_KEY"
 
@@ -27,14 +32,21 @@ python run.py daily
 python -m http.server -d web 8080      # then open localhost:8080
 ```
 
-Edit `config/roster.yaml` first. It is the file that decides whether this is
-useful, and the placeholder entries in it are fictional.
+Prefer a large-context model. Foundation-page extraction sends up to 60k
+characters, and a small window truncates mid-page and silently drops the calls
+near the bottom.
+
+`config/roster.yaml` is the file that decides whether any of this is useful. It
+ships with 49 real collaborations, but the `status` field on each one was
+inferred from dates alone. Fix that first: `status` decides what reaches the
+roster-match digest, and a wrongly-cold entry costs you a lead invisibly.
 
 ## Running it
 
 ```bash
 python run.py daily                    # ingest, assess, export, digest, the cron job
 python run.py status                   # what ran, what has gone stale
+python run.py assess --limit 25        # classify a batch, to eyeball scores first
 python run.py digest --feed closing-soon --send
 python run.py feedback gg:349021 down "student training grant, not for us"
 ```
@@ -47,72 +59,191 @@ Cron:
 
 ## How it works
 
+```mermaid
+flowchart TD
+    A1["Grants.gov search2<br/>31 query terms"] --> E
+    A2["NSF funding search"] --> E
+    A3["RSS feed<br/>ReSA"] --> P
+    A4["16 foundation pages<br/>fetched and stripped to text"] --> X
+
+    X["EXTRACT<br/>model reads the page:<br/>list every open call"] --> P
+
+    E["ENRICH<br/>per-opportunity detail fetch:<br/>description, award figures, deadline"] --> P
+
+    P{"PREFILTER<br/>deterministic, no model<br/>keywords, agency allowlist,<br/>exclusion patterns"}
+    P -->|"rejected"| Z["dropped, not stored"]
+    P -->|"passed"| S[("SQLite<br/>all state in one file")]
+
+    S --> AS["ASSESS<br/>one model call per record:<br/>score, category, roster match"]
+    AS --> S
+
+    S --> J["web/opportunities.json"] --> D["static dashboard<br/>filtered in the browser"]
+    S --> G["five email digests"]
+    G --> F["FEEDBACK<br/>thumbs up or down"]
+    F --> AS
 ```
-Grants.gov API · NSF API · RSS feeds · foundation pages
-        │
-   INGEST        one adapter each, normalised to a common record
-        │
-   PREFILTER     deterministic rules, no model, kills most of the volume
-        │
-   ASSESS        one model call: relevance score + category + roster match
-        │
-   SQLite        all state in one file
-        │
-        ├─▶ web/opportunities.json  →  static dashboard, filtered in the browser
-        └─▶ email digests           →  five curated feeds
-                    │
-              FEEDBACK  thumbs up/down → few-shot examples in the next prompt
-```
+
+Feedback closes the loop: cases where a human disagreed with the score are
+injected into the next classification prompt as calibration examples. No
+fine-tuning, no retraining, the prompt just accumulates your own hard cases.
 
 Two properties worth preserving if you extend this:
 
-**The model runs offline, at ingest, never in a request path.** The dashboard is a
-static file. Nothing user-facing depends on the gateway being up.
+**The model runs offline, at ingest, never in a request path.** The dashboard is
+a static file. Nothing user-facing depends on the gateway being up.
 
 **Nothing is discovered by following links.** Sources come from
-`config/sources.yaml` and nowhere else. That is the difference between a tool you
-maintain in an afternoon and a crawler you maintain forever.
+`config/sources.yaml` and nowhere else. That is the difference between a tool
+you maintain in an afternoon and a crawler you maintain forever.
+
+## Why enrichment happens before the prefilter
+
+Grants.gov's search endpoint returns only title, agency and dates. No
+description, no award ceiling. Filtering on that means judging a thousand
+records a day by their titles, which is exactly how a domain call with a
+software requirement in its body text gets dropped invisibly.
+
+So each opportunity gets one detail fetch, and it happens before the prefilter
+runs. That only stays cheap because of a ledger: `detail_cache` remembers every
+id already fetched, **including the ones the prefilter then rejected**. Those
+are never stored as opportunities, so without the ledger they would be
+re-fetched every morning.
+
+```mermaid
+flowchart TD
+    R["record from search response"] --> Q{"id in detail_cache?"}
+    Q -->|"yes"| C["apply cached detail<br/>zero requests"]
+    Q -->|"no"| FE["fetch detail once"]
+    FE --> SV["write to detail_cache<br/>failures cached too,<br/>retried after 7 days"]
+    SV --> C
+    C --> EX{"deadline already passed?"}
+    EX -->|"yes"| DR["drop, never stored"]
+    EX -->|"no"| PF["prefilter, now reading<br/>the full description"]
+```
+
+Measured on 2026-09-04: filtering on titles alone stored 118 opportunities;
+filtering on descriptions stored 597, every one with a synopsis and 373 with an
+award figure. First pass costs about 1,150 detail fetches and roughly five
+minutes. It commits every 50 fetches, so interrupting it keeps what it paid
+for. Steady state is only genuinely new postings.
+
+The expiry check runs twice, once on the search response and again after
+enrichment, because the detail endpoint often supplies a deadline the search
+response omitted and it may already have passed. Without the second check such
+a record is stored, pruned, and re-fetched forever.
+
+## Housekeeping
+
+Every ingest ends by deleting calls whose deadline passed more than 30 days
+ago, cascading to their assessments and sent-log rows. Two things it will not
+touch:
+
+- **Anything with feedback**, regardless of age. `few_shot_corrections` inner
+  joins `opportunities`, so pruning a row that carries a thumbs up or down
+  would silently drop that hard case from every future prompt. The calibration
+  corpus is the one thing here that cannot be re-fetched.
+- **Rolling calls with no deadline.** The tempting rule is to drop them once
+  `last_seen` goes stale, but a broken source stops updating `last_seen` for
+  its whole catalogue, so that rule would delete a source's entire list on the
+  day it breaks.
+
+`detail_cache` is also left alone by pruning, on purpose: it is the memory that
+stops a pruned grant from being re-fetched tomorrow. The rows are tiny, the
+requests are not.
 
 ## Foundation pages
 
-Fetched, stripped to plain text, and handed to the model with "list every open call
-on this page." No CSS selectors, so a site redesign changes the text rather than
-breaking the adapter. A content hash is stored per URL and unchanged pages skip the
-model call entirely, so steady-state cost is near zero.
+Fetched, stripped to plain text, and handed to the model with "list every open
+call on this page." No CSS selectors, so a site redesign changes the text
+rather than breaking the adapter. A content hash is stored per URL and
+unchanged pages skip the model call entirely, so steady-state cost is near
+zero.
 
-Because these pages carry no identifier of their own, records get a synthetic id
-from `sha256(url + normalised program name)`. The normalisation is deliberately
-aggressive so "EOSS Cycle 7" and "Essential Open Source Software (Cycle 7)" resolve
-to the same record instead of re-alerting every week.
+Because these pages carry no identifier of their own, records get a synthetic
+id from `sha256(url + normalised program name)`. The normalisation is
+deliberately aggressive so "EOSS Cycle 7" and "Essential Open Source Software
+(Cycle 7)" resolve to the same record instead of re-alerting every week.
 
-`indirect_cap` is extracted as a first-class field. Foundation caps of 10–15% are
-common, they sit well below a federal negotiated rate, and they change whether a
-small award is worth taking, so it belongs in the digest, not buried in prose.
+`indirect_cap` is extracted as a first-class field. Foundation caps of 10 to 15
+percent are common, they sit well below a federal negotiated rate, and they
+change whether a small award is worth taking, so it belongs in the digest, not
+buried in prose.
+
+A fetch that returns under 500 characters of stripped text raises instead of
+extracting nothing. That catches the two ways a page can look fine and be
+useless: a bot wall, and a client-rendered shell that ships JavaScript instead
+of content. Both used to be recorded as a success with zero calls found.
 
 ## Failure mode to watch
 
 The risk is not a crash. It is a source that quietly stops yielding while the
-pipeline reports success. Every source records `last_successful_extraction`, stale
-sources appear at the top of each digest and in a banner on the dashboard, and
-`run.py status` lists them. Do not silence that banner.
+pipeline reports success. There are three ways to be stale, and the third is
+the one that hides:
 
-## Tuning
+```mermaid
+flowchart LR
+    S["source run"] --> A{"ever succeeded?"}
+    A -->|"no"| ST["STALE"]
+    A -->|"yes"| B{"last success<br/>over 30 days old?"}
+    B -->|"yes"| ST
+    B -->|"no"| C{"three runs in a row<br/>succeeded but returned<br/>nothing?"}
+    C -->|"yes"| ST
+    C -->|"no"| OK["healthy"]
+```
 
-Thumbs up/down are recorded against opportunities. Once a month, pull the cases
-where a human disagreed with the score and they are automatically injected into the
-next classification prompt as calibration examples. No fine-tuning, no retraining -
-the prompt just accumulates your own hard cases.
+That third branch exists because a fresh `last_success` with an empty list
+looks perfectly healthy. The NSF adapter has been returning zero records while
+reporting success; it is now flagged. Requiring three consecutive empty runs
+keeps a genuinely quiet week from crying wolf, and a hard failure neither
+inflates nor resets the streak because it is already visible as `last_error`.
+
+Stale sources appear at the top of every digest, in a banner on the dashboard,
+and in `run.py status`. Do not silence that banner.
+
+Known: the Wellcome Trust page is unreachable by plain HTTP, every path answers
+202 with an empty body. No URL fixes it. It is left in the config so it fails
+loudly rather than disappearing quietly.
+
+## The dashboard
+
+A single static file reading `web/opportunities.json`. Filter chips for closing
+soon, roster match, domain calls, CI programs and foundations; a search box
+across titles, funders and people; and a roster-area picker built from the data
+itself, with per-area counts, so it always reflects how the roster actually
+matched. Each row's area tag toggles that filter too.
+
+The number beside each title is the model's relevance score out of 100, not an
+id. Award amounts, indirect caps, the closest roster match and its warmth all
+render on the row.
 
 ## Cost
 
-After the prefilter you are sending perhaps 30–60 opportunities a day at a couple
-of thousand tokens each. Cents per day. One small VM or a scheduled CI job is the
-right size for this; anything more is more infrastructure than the thing it runs.
+After the prefilter you are sending a few hundred opportunities to the model on
+the first run at a couple of thousand tokens each, then only new postings each
+day. Cents per day in steady state. The first `assess` after a fresh ingest is
+the largest single spend, which is why `--limit` exists: run a small batch, look
+at the scores and the roster matches, then let the rest through.
+
+One small VM or a scheduled CI job is the right size for this; anything more is
+more infrastructure than the thing it runs.
+
+## Tuning
+
+The prefilter keyword list is deliberately loose. A false exclusion is
+invisible and permanent; a false inclusion costs a fraction of a cent. Expect
+to tighten it, not loosen it, and note that matching is plain substring, so
+short tokens over-match: `api` also matches "rapid" and "therapies". Two-letter
+tokens are avoided for that reason.
+
+The query terms in `config/sources.yaml` are the opposite case. Each one costs
+a separate API request and is capped at the endpoint's row limit, so a term
+broad enough to exceed that cap is silently truncated. Keep those specific and
+put the loose vocabulary in the prefilter.
 
 ## Deliberately not built
 
-Award feeds and supplements, GitHub issue trackers, an API server, a vector store,
-auth, a job queue, per-user saved filters, and full-text ingestion of every
-solicitation. Each is a plausible addition that multiplies the maintenance surface
-for very little extra signal. Add one only when its absence has actually cost you
-something.
+Award feeds and supplements, GitHub issue trackers, an API server, a vector
+store, auth, a job queue, per-user saved filters, and headless-browser
+rendering for the handful of pages that need it. Each is a plausible addition
+that multiplies the maintenance surface for very little extra signal. Add one
+only when its absence has actually cost you something.
