@@ -185,8 +185,16 @@ def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
     )
     out = _post([{"role": "user", "content": "\n\n".join(parts)}], ASSESS_SYSTEM, max_tokens=800)
     result = _json(out, {})
-    if not isinstance(result, dict):
+    # _json returns its default ({}) when parsing fails, and an empty dict is a
+    # dict -- so an isinstance check alone lets a scoreless result through and
+    # stores an all-NULL assessment row. Require a usable score.
+    if not isinstance(result, dict) or result.get("score") is None:
         return {"score": 0, "category": "not_relevant", "rationale": "unparseable response"}
+    try:
+        result["score"] = max(0, min(100, int(float(result["score"]))))
+    except (TypeError, ValueError):
+        return {"score": 0, "category": "not_relevant",
+                "rationale": f"non-numeric score: {result.get('score')!r}"}
     return result
 
 

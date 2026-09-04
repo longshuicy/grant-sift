@@ -188,12 +188,20 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
 # Digest — curated feeds, not per-user queries
 # --------------------------------------------------------------------------
 
+def _score(r):
+    """Rows assessed before the NULL-score fix, or by a model that returned no
+    parseable score, still sit in the database. Treat a missing score as 0 so a
+    digest degrades to omitting the row instead of raising TypeError."""
+    s = r["score"]
+    return s if isinstance(s, (int, float)) else 0
+
+
 FEEDS = {
-    "ci-programs":  lambda r: r["category"] == "ci_program" and r["score"] >= 60,
-    "embedded":     lambda r: r["category"] in ("embedded_software", "domain_subaward") and r["score"] >= 65,
-    "foundations":  lambda r: r["source"] not in ("grants.gov", "nsf") and r["score"] >= 60,
-    "closing-soon": lambda r: _within(r["deadline"], 30) and r["score"] >= 60,
-    "roster-match": lambda r: r["match_name"] and r["score"] >= 60,
+    "ci-programs":  lambda r: r["category"] == "ci_program" and _score(r) >= 60,
+    "embedded":     lambda r: r["category"] in ("embedded_software", "domain_subaward") and _score(r) >= 65,
+    "foundations":  lambda r: r["source"] not in ("grants.gov", "nsf") and _score(r) >= 60,
+    "closing-soon": lambda r: _within(r["deadline"], 30) and _score(r) >= 60,
+    "roster-match": lambda r: r["match_name"] and _score(r) >= 60,
 }
 
 

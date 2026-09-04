@@ -67,8 +67,8 @@ nsf:
   enabled: true
 
 feeds:
-  - name: CURIOSS
-    url: https://curioss.org/resources/funding-opportunities/feed.xml
+  # CURIOSS moved to foundations: below -- it publishes no RSS feed, so the
+  # /feed.xml guess 404d. Verified 2026-09-04.
   - name: ReSA
     url: https://www.researchsoft.org/blog/index.xml
 
@@ -76,9 +76,12 @@ feeds:
 # would have wanted. Fifteen is plenty to start.
 foundations:
   - name: Chan Zuckerberg Initiative
-    url: https://chanzuckerberg.com/rfa/
+    url: https://chanzuckerberg.com/science/science-funding/
     cadence: weekly
-    notes: EOSS runs co-funded with Wellcome and Kavli
+    notes: >
+      canonical RFA list, filterable. /rfa/ itself 404s even though
+      /rfa/<name>/ pages exist. EOSS is co-funded with Wellcome and Kavli;
+      Cycle 6 has closed. Verified 2026-09-04.
 
   - name: Alfred P. Sloan Foundation
     url: https://sloan.org/programs
@@ -89,7 +92,7 @@ foundations:
     cadence: weekly
 
   - name: Schmidt Sciences
-    url: https://www.schmidtsciences.org/programs/
+    url: https://www.schmidtsciences.org/opportunities
     cadence: weekly
 
   - name: Simons Foundation
@@ -97,9 +100,12 @@ foundations:
     cadence: weekly
 
   - name: Mellon Foundation
-    url: https://www.mellon.org/grants/grant-opportunities
+    url: https://www.mellon.org/resources/for-grant-seekers
     cadence: weekly
-    notes: the humanities and digital scholarship lane
+    notes: >
+      the humanities and digital scholarship lane. Most Mellon money is
+      staff-invited; this page is where the rare open calls appear.
+      /grant-programs is prose only, no deadlines. Verified 2026-09-04.
 
   - name: Alpha-Omega
     url: https://alpha-omega.dev/
@@ -135,6 +141,16 @@ foundations:
     cadence: monthly
 
   - name: Illinois Research Board
-    url: https://research.illinois.edu/funding-opportunities
+    url: https://research.illinois.edu/find-funding/featured-funding-opportunities
     cadence: weekly
-    notes: internal campus money; never appears in any national database
+    notes: >
+      internal campus money; never appears in any national database. The page
+      has a "view all" tab. Verified 2026-09-04.
+
+  - name: CURIOSS
+    url: https://curioss.org/resources/funding-opportunities/
+    cadence: weekly
+    notes: >
+      community of university open-source programme offices. Human-curated, so
+      it stays in always_assess_sources. Was configured as an RSS feed, but the
+      site publishes none -- fetched as a page instead. Verified 2026-09-04.

@@ -198,7 +198,8 @@ def save_assessment(conn, opp_id: str, a: dict, model: str, input_hash: str):
             match_status, match_rationale, model, input_hash, assessed_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (
-            opp_id, a.get("score"), a.get("category"), a.get("rationale"),
+            opp_id, a.get("score") if a.get("score") is not None else 0,
+            a.get("category") or "not_relevant", a.get("rationale"),
             a.get("match_name"), a.get("match_project"), a.get("match_status"),
             a.get("match_rationale"), model, input_hash, now(),
         ),
