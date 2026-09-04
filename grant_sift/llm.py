@@ -14,7 +14,11 @@ DEFAULT_BASE_URL = "https://lumen.ncsa.illinois.edu/v1"
 # Lumen proxies different backends per deployment, so a default model id is a
 # guess about that routing table, not a fact. Confirm it is in /v1/models and
 # override GRANT_SIFT_LLM_MODEL if your key routes elsewhere.
-DEFAULT_MODEL = "glm-5.2"
+#
+# gemma-4-31b-it over glm-5.2: benchmarked on real records from this pipeline
+# it produced identical scores for about a seventh of the cost, and it is not
+# a reasoning model, so it does not spend the token budget thinking.
+DEFAULT_MODEL = "gemma-4-31b-it"
 
 BASE_URL = os.environ.get("GRANT_SIFT_LLM_BASE_URL", DEFAULT_BASE_URL)
 API_KEY = os.environ.get("GRANT_SIFT_LLM_API_KEY", "")

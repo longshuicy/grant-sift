@@ -20,7 +20,7 @@ set -a; source .env; set +a
 ```
 
 The gateway defaults to NCSA Lumen, an OpenAI-compatible proxy, so the only
-required value is the key. `GRANT_SIFT_LLM_MODEL` defaults to `glm-5.2`.
+required value is the key. `GRANT_SIFT_LLM_MODEL` defaults to `gemma-4-31b-it`.
 Override `GRANT_SIFT_LLM_BASE_URL` for any other OpenAI-compatible gateway.
 
 ```bash
