@@ -3,18 +3,36 @@ grant-sift.db
 grant-sift.db-journal
 grant-sift.db-wal
 grant-sift.db-shm
+*.db
+*.sqlite
+*.sqlite3
 web/opportunities.json
 run.log
+*.log
 
-# Secrets: the three GRANT_SIFT_LLM_* gateway vars live here, never in git
+# Secrets. The gateway key lives in .env and must never be committed.
+# .env.example is the documented template and IS tracked, hence the negation.
 .env
+.env.*
+!.env.example
+.envrc
+secrets.yaml
+secrets.yml
+*.pem
+*.key
+credentials.json
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+env/
 *.egg-info/
+.pytest_cache/
 
-# macOS
+# Editors and OS
 .DS_Store
+.idea/
+.vscode/
+*.swp
