@@ -1,12 +1,12 @@
 # Generated state — all of it is rebuildable with `python run.py daily`
-bellwether.db
-bellwether.db-journal
-bellwether.db-wal
-bellwether.db-shm
+grant-sift.db
+grant-sift.db-journal
+grant-sift.db-wal
+grant-sift.db-shm
 web/opportunities.json
 run.log
 
-# Secrets: the three BELLWETHER_LLM_* gateway vars live here, never in git
+# Secrets: the three GRANT_SIFT_LLM_* gateway vars live here, never in git
 .env
 
 # Python

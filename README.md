@@ -1,4 +1,4 @@
-# Bellwether
+# Grant Sift
 
 Funding signal for a research software group. It reads Grants.gov, NSF, a fixed
 list of foundation pages, and a couple of RSS feeds; scores each opportunity for
@@ -15,9 +15,9 @@ partner and does not yet know it.
 ```bash
 pip install -r requirements.txt
 
-export BELLWETHER_LLM_BASE_URL="https://your-gateway/v1"   # OpenAI-compatible
-export BELLWETHER_LLM_API_KEY="..."
-export BELLWETHER_LLM_MODEL="..."
+export GRANT_SIFT_LLM_BASE_URL="https://your-gateway/v1"   # OpenAI-compatible
+export GRANT_SIFT_LLM_API_KEY="..."
+export GRANT_SIFT_LLM_MODEL="..."
 
 python run.py daily
 python -m http.server -d web 8080      # then open localhost:8080
@@ -38,7 +38,7 @@ python run.py feedback gg:349021 down "student training grant, not for us"
 Cron:
 
 ```
-0 6 * * *  cd /srv/bellwether && ./venv/bin/python run.py daily >> run.log 2>&1
+0 6 * * *  cd /srv/grant-sift && ./venv/bin/python run.py daily >> run.log 2>&1
 ```
 
 ## How it works

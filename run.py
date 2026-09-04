@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bellwether CLI.
+"""Grant Sift CLI.
 
     python run.py daily                 # the cron job: ingest, assess, export, digest
     python run.py ingest                # fetch and prefilter only
@@ -16,11 +16,11 @@ import os
 import sys
 from email.message import EmailMessage
 
-from bellwether import db, pipeline
+from grant_sift import db, pipeline
 
-DB_PATH = os.environ.get("BELLWETHER_DB", "bellwether.db")
-SMTP_HOST = os.environ.get("BELLWETHER_SMTP_HOST", "localhost")
-SMTP_FROM = os.environ.get("BELLWETHER_FROM", "bellwether@ncsa.illinois.edu")
+DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
+SMTP_HOST = os.environ.get("GRANT_SIFT_SMTP_HOST", "localhost")
+SMTP_FROM = os.environ.get("GRANT_SIFT_FROM", "grant-sift@ncsa.illinois.edu")
 
 
 def cmd_ingest(conn, args):
@@ -63,7 +63,7 @@ def cmd_digest(conn, args):
         return
 
     msg = EmailMessage()
-    msg["Subject"] = f"Bellwether: {args.feed} ({len(items)} new)"
+    msg["Subject"] = f"Grant Sift: {args.feed} ({len(items)} new)"
     msg["From"] = SMTP_FROM
     msg["To"] = ", ".join(subscribers)
     msg.set_content(body)
@@ -108,7 +108,7 @@ def cmd_status(conn, args):
 
 
 def main():
-    p = argparse.ArgumentParser(prog="bellwether")
+    p = argparse.ArgumentParser(prog="grant-sift")
     p.add_argument("--config", default="config")
     p.add_argument("--db", default=DB_PATH)
     sub = p.add_subparsers(dest="cmd", required=True)

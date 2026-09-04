@@ -16,7 +16,7 @@ import requests
 
 from . import db, llm
 
-UA = "Bellwether/1.0 (NCSA research software funding watch; contact: rse@ncsa.illinois.edu)"
+UA = "Grant Sift/1.0 (NCSA research software funding watch; contact: rse@ncsa.illinois.edu)"
 HEADERS = {"User-Agent": UA}
 TIMEOUT = 45
 

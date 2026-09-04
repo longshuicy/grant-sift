@@ -232,7 +232,7 @@ def build_digest(conn, feed, since_days=7, respect_sent_log=True):
 def render_digest(feed, items, stale):
     if not items and not stale:
         return None
-    lines = [f"Bellwether — {feed} — {date.today().isoformat()}", ""]
+    lines = [f"Grant Sift — {feed} — {date.today().isoformat()}", ""]
     if stale:
         names = ", ".join(s["name"] for s in stale)
         lines += [f"{len(stale)} source(s) not updating: {names}", ""]

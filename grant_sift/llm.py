@@ -7,10 +7,10 @@ import time
 
 import requests
 
-BASE_URL = os.environ.get("BELLWETHER_LLM_BASE_URL", "https://api.anthropic.com/v1")
-API_KEY = os.environ.get("BELLWETHER_LLM_API_KEY", "")
-MODEL = os.environ.get("BELLWETHER_LLM_MODEL", "claude-sonnet-4-6")
-TIMEOUT = int(os.environ.get("BELLWETHER_LLM_TIMEOUT", "120"))
+BASE_URL = os.environ.get("GRANT_SIFT_LLM_BASE_URL", "https://api.anthropic.com/v1")
+API_KEY = os.environ.get("GRANT_SIFT_LLM_API_KEY", "")
+MODEL = os.environ.get("GRANT_SIFT_LLM_MODEL", "claude-sonnet-4-6")
+TIMEOUT = int(os.environ.get("GRANT_SIFT_LLM_TIMEOUT", "120"))
 
 
 def _post(messages, system, max_tokens=2000, retries=3):
