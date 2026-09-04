@@ -63,30 +63,54 @@ ENRICH_SOURCES = ("grants.gov",)
 def _enrich(conn, rec, stats, verbose):
     """Fill in description and award figures from the per-opportunity endpoint.
 
-    A failure here degrades to the thin record rather than losing it: a missing
-    description costs classification quality, but dropping the opportunity
-    entirely costs the opportunity.
+    Runs BEFORE the prefilter, so keyword matching sees the description rather
+    than the title alone. grants.gov search2 returns no description, so without
+    this the prefilter was judging roughly a thousand records a day on their
+    titles, and a call whose software requirement sits in the body text was
+    dropped invisibly.
+
+    Every result is cached by db.save_detail, including for records the
+    prefilter then rejects, because those are never stored as opportunities and
+    would otherwise be re-fetched every morning.
+
+    A failure degrades to the thin record rather than losing it: a missing
+    description costs classification quality, dropping the record costs the
+    opportunity.
     """
     if rec.get("source") not in ENRICH_SOURCES or not rec.get("external_id"):
         return
-    if not db.needs_detail(conn, rec["id"]):
+
+    cached = db.detail_cached(conn, rec["id"])
+    if cached is not None:
+        for k, v in cached.items():
+            if v:
+                rec[k] = v
+        stats["detail_cached"] += 1
         return
+
     try:
         detail = adapters.grants_gov_detail(rec["external_id"])
     except Exception as exc:  # noqa: BLE001
+        db.save_detail(conn, rec["id"], {}, ok=False)
         stats["detail_failed"] += 1
         if verbose and stats["detail_failed"] <= 3:
             print(f"    detail fetch failed for {rec['id']}: {str(exc)[:70]}")
         return
+
+    db.save_detail(conn, rec["id"], detail, ok=True)
+    stats["enriched"] += 1
     for k, v in detail.items():
         if v:
             rec[k] = v
-    if detail:
-        stats["enriched"] += 1
+    # Commit periodically so a long first pass is resumable: interrupting it
+    # must not throw away the fetches already paid for.
+    if stats["enriched"] % 50 == 0:
+        conn.commit()
 
 
 def ingest(conn, sources, prefilter, verbose=True):
-    stats = {"fetched": 0, "kept": 0, "new": 0, "enriched": 0, "detail_failed": 0}
+    stats = {"fetched": 0, "kept": 0, "new": 0, "enriched": 0,
+             "detail_cached": 0, "detail_failed": 0, "expired": 0, "pruned": 0}
     kw = sources.get("keywords", [])
 
     def run(name, kind, url, fn):
@@ -96,11 +120,16 @@ def ingest(conn, sources, prefilter, verbose=True):
             stats["fetched"] += len(records)
             kept = 0
             for rec in records:
+                _enrich(conn, rec, stats, verbose)
+                # Enrichment can reveal a deadline the search response omitted,
+                # and it may already have passed.
+                if adapters.is_expired(rec):
+                    stats["expired"] += 1
+                    continue
                 ok, _ = prefilter_pass(rec, prefilter)
                 if not ok:
                     continue
                 kept += 1
-                _enrich(conn, rec, stats, verbose)
                 if db.upsert_opportunity(conn, rec):
                     stats["new"] += 1
             stats["kept"] += kept
@@ -130,6 +159,7 @@ def ingest(conn, sources, prefilter, verbose=True):
         run(page["name"], "page", page["url"],
             lambda p=page: adapters.foundation_page(conn, p["name"], p["url"]))
 
+    stats["pruned"] = db.prune_expired(conn)
     conn.commit()
     return stats
 

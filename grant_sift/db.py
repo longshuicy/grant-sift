@@ -3,7 +3,7 @@
 import hashlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA = """
@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS sources (
 CREATE TABLE IF NOT EXISTS page_cache (
     url           TEXT PRIMARY KEY,
     content_hash  TEXT,
+    fetched_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS detail_cache (
+    id            TEXT PRIMARY KEY,   -- opportunity id, e.g. gg:356129
+    ok            INTEGER DEFAULT 1,  -- 0 when the fetch failed
+    synopsis      TEXT,
+    award_ceiling TEXT,
+    deadline      TEXT,
     fetched_at    TEXT
 );
 
@@ -102,6 +111,20 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     if "match_domain" not in acols:
         conn.execute("ALTER TABLE assessments ADD COLUMN match_domain TEXT")
         conn.commit()
+
+    # Opportunities enriched before detail_cache existed already hold the data.
+    # Seed from them once so upgrading an existing database does not re-fetch
+    # details it already paid for.
+    if not conn.execute("SELECT 1 FROM detail_cache LIMIT 1").fetchone():
+        conn.execute(
+            """INSERT OR IGNORE INTO detail_cache
+                 (id, ok, synopsis, award_ceiling, deadline, fetched_at)
+               SELECT id, 1, synopsis, award_ceiling, deadline, ?
+               FROM opportunities
+               WHERE synopsis IS NOT NULL AND TRIM(synopsis) != ''""",
+            (now(),),
+        )
+        conn.commit()
     return conn
 
 
@@ -175,6 +198,47 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
         # Content moved on, so the old assessment no longer describes this record.
         conn.execute("DELETE FROM assessments WHERE opportunity_id = ?", (rec["id"],))
     return changed
+
+
+def detail_cached(conn, opp_id: str, retry_failed_after_days: int = 7):
+    """Return the cached detail for an opportunity, or None if it needs fetching.
+
+    Keyed by opportunity id rather than by the opportunities table, because the
+    whole point is to remember records the prefilter REJECTED. Those are never
+    stored as opportunities, so without this they would be re-fetched every
+    morning: about a thousand requests a day.
+
+    A failed fetch is cached too, so one bad id does not get retried daily, but
+    it expires after `retry_failed_after_days` in case the failure was
+    transient.
+    """
+    row = conn.execute(
+        """SELECT ok, synopsis, award_ceiling, deadline, fetched_at
+           FROM detail_cache WHERE id = ?""", (opp_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    if not row["ok"]:
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(row["fetched_at"])).days
+        except (TypeError, ValueError):
+            return None
+        return {} if age < retry_failed_after_days else None
+    return {k: row[k] for k in ("synopsis", "award_ceiling", "deadline")}
+
+
+def save_detail(conn, opp_id: str, detail: dict, ok: bool = True):
+    conn.execute(
+        """INSERT INTO detail_cache (id, ok, synopsis, award_ceiling, deadline, fetched_at)
+           VALUES (?,?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET
+             ok=excluded.ok, synopsis=excluded.synopsis,
+             award_ceiling=excluded.award_ceiling, deadline=excluded.deadline,
+             fetched_at=excluded.fetched_at""",
+        (opp_id, 1 if ok else 0, detail.get("synopsis"), detail.get("award_ceiling"),
+         detail.get("deadline"), now()),
+    )
 
 
 def needs_detail(conn, opp_id: str) -> bool:
@@ -280,6 +344,41 @@ def stale_sources(conn, days: int = 30, zero_runs: int = 3):
               OR zero_streak >= ?""",
         (days, zero_runs),
     ).fetchall()
+
+
+def prune_expired(conn, grace_days: int = 30):
+    """Delete opportunities whose deadline passed more than `grace_days` ago.
+
+    Two deliberate exclusions:
+
+    Anything with feedback is kept regardless of age. few_shot_corrections
+    INNER JOINs opportunities, so deleting a row that carries a thumbs up or
+    down would silently drop that hard case from every future prompt. The
+    calibration corpus is the one thing here that cannot be re-fetched.
+
+    Rolling calls (deadline IS NULL) are never pruned. The tempting rule is to
+    drop them once last_seen goes stale, but a broken source stops updating
+    last_seen for everything it carries, so that rule would quietly delete a
+    source's whole catalogue on the day it breaks.
+    """
+    cutoff = (date.today() - timedelta(days=grace_days)).isoformat()
+    ids = [r["id"] for r in conn.execute(
+        """SELECT o.id FROM opportunities o
+           WHERE o.deadline IS NOT NULL AND o.deadline < ?
+             AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.opportunity_id = o.id)""",
+        (cutoff,),
+    )]
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    # detail_cache is deliberately NOT cleared. It is the ledger that records
+    # which ids have already been fetched, so dropping a row here would make
+    # the next run re-fetch a grant we just pruned, prune it again, and repeat
+    # every morning. The rows are tiny; the requests are not.
+    for table, col in (("assessments", "opportunity_id"), ("sent_log", "opportunity_id"),
+                       ("opportunities", "id")):
+        conn.execute(f"DELETE FROM {table} WHERE {col} IN ({marks})", ids)
+    return len(ids)
 
 
 def few_shot_corrections(conn, limit: int = 12):

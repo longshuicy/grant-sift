@@ -31,8 +31,14 @@ def cmd_ingest(conn, args):
             f"{stats['new']} new or changed")
     if stats.get("enriched"):
         line += f", {stats['enriched']} enriched with detail"
+    if stats.get("detail_cached"):
+        line += f", {stats['detail_cached']} detail(s) from cache"
     if stats.get("detail_failed"):
         line += f", {stats['detail_failed']} detail fetch(es) failed"
+    if stats.get("expired"):
+        line += f", {stats['expired']} already closed"
+    if stats.get("pruned"):
+        line += f", {stats['pruned']} expired pruned"
     print(line)
     return stats
 

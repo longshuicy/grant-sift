@@ -292,6 +292,20 @@ def _dedupe(records):
     return out
 
 
-def drop_expired(records, grace_days=1):
+def is_expired(rec, grace_days=1):
+    """True when this record's deadline has already passed.
+
+    Checked twice: once on the search response, and again after enrichment,
+    because search2 often omits closeDate while the detail endpoint supplies a
+    responseDate that is already in the past. Without the second check such a
+    record is stored, pruned, and re-fetched every single run.
+    """
+    deadline = rec.get("deadline")
+    if not deadline:
+        return False
     cutoff = (datetime.utcnow() - timedelta(days=grace_days)).date().isoformat()
-    return [r for r in records if not r.get("deadline") or r["deadline"] >= cutoff]
+    return deadline < cutoff
+
+
+def drop_expired(records, grace_days=1):
+    return [r for r in records if not is_expired(r, grace_days)]
