@@ -102,6 +102,13 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    # WAL lets the web app insert feedback while the nightly job is writing.
+    # Under the default rollback journal a reader blocks a writer outright, and
+    # the 5 second busy timeout is not enough for a half-hour assess run.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
     if "zero_streak" not in cols:

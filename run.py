@@ -139,7 +139,7 @@ def main():
 
     e = sub.add_parser("export")
     e.add_argument("--out", default="web/opportunities.json")
-    e.add_argument("--min-score", type=int, default=40)
+    e.add_argument("--min-score", type=int, default=0)
 
     d = sub.add_parser("digest")
     d.add_argument("--feed", required=True, choices=list(pipeline.FEEDS))
@@ -153,7 +153,7 @@ def main():
 
     args = p.parse_args()
     for attr, default in (("limit", 200), ("out", "web/opportunities.json"),
-                          ("min_score", 40), ("feed", None), ("since", 7),
+                          ("min_score", 0), ("feed", None), ("since", 7),
                           ("send", False)):
         if not hasattr(args, attr):
             setattr(args, attr, default)

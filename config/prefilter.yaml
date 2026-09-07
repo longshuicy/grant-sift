@@ -4,7 +4,12 @@
 # is invisible, it never reaches the classifier and never appears in a digest.
 # A false inclusion costs a fraction of a cent.
 
-min_keyword_hits: 1
+# 0 means every fetched record reaches the classifier. Measured 2026-09-04:
+# raising this to 1 dropped 1,041 records to 597, and the 444 difference cost
+# only about 0.4 coins to assess. Recall is worth more than that, so the
+# keyword list below now only annotates why a record matched; it no longer
+# gates. exclude_patterns still apply, and they are the only real filter left.
+min_keyword_hits: 0
 
 # Substring matched, case-insensitively, against lowercased title + synopsis.
 # Loose on purpose: a false exclusion here is invisible and permanent, a false

@@ -169,12 +169,25 @@ def ingest(conn, sources, prefilter, verbose=True):
 
 
 def _due(conn, page):
-    """Foundation pages move slowly. Weekly is generous; monthly is often enough."""
+    """Foundation pages move slowly. Weekly is generous; monthly is often enough.
+
+    The cadence counts from the last SUCCESS, not the last attempt. Gating on
+    the attempt means one 404 locks a source out for its whole cadence: five
+    pages sat unfetched for a week after a URL changed, and correcting the URL
+    changed nothing because the source was never retried. A source that has
+    never succeeded, or whose last attempt errored, is due now. The cost of
+    being wrong that way is one HTTP request; the cost of the other way is a
+    silently incomplete list.
+    """
     cadence_days = {"daily": 1, "weekly": 7, "monthly": 30}.get(page.get("cadence", "weekly"), 7)
-    row = conn.execute("SELECT last_run FROM sources WHERE name = ?", (page["name"],)).fetchone()
-    if not row or not row["last_run"]:
+    row = conn.execute(
+        "SELECT last_success, last_error FROM sources WHERE name = ?", (page["name"],)
+    ).fetchone()
+    if not row or not row["last_success"]:
         return True
-    last = datetime.fromisoformat(row["last_run"]).date()
+    if row["last_error"]:
+        return True
+    last = datetime.fromisoformat(row["last_success"]).date()
     return (date.today() - last).days >= cadence_days
 
 
