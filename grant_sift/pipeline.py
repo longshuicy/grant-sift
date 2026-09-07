@@ -395,6 +395,15 @@ FEEDS = {
     "roster-match": lambda r: r["match_name"] and _score(r) >= 60,
 }
 
+# Human labels for the subscribe UI (keys must match FEEDS).
+FEED_LABELS = {
+    "closing-soon": "Closing within 30 days",
+    "roster-match": "Matches a past collaborator",
+    "ci-programs": "CI / research-software programs",
+    "embedded": "Domain / embedded calls",
+    "foundations": "Foundations (non-NSF / non-grants.gov)",
+}
+
 
 def _within(deadline, days):
     if not deadline:

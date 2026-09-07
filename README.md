@@ -46,6 +46,10 @@ python run.py digest --feed closing-soon --send
 python run.py feedback gg:349021 down "student training grant, not for us"
 ```
 
+Subscribe to digests in the dashboard (**Personalize → Email digests**). Nightly
+`daily` emails feeds when `GRANT_SIFT_SMTP_HOST` is set (campus relay:
+[KB 47888](https://answers.uillinois.edu/illinois/47888)).
+
 Nightly, via `scripts/daily.sh`, which loads `.env` and refuses to overlap
 itself:
 

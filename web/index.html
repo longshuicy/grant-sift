@@ -209,6 +209,14 @@
                   border: 1px solid var(--rule); background: #fff; color: var(--ink); }
   .cfgpop .offline { color: var(--ink-faint); font-size: 12px; margin-top: 8px; line-height: 1.4; }
   .cfgpop .cfgsec .vote { margin-top: 4px; }
+  .cfgpop .subfeeds { margin: 8px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+  .cfgpop .subfeeds label {
+    display: flex; align-items: flex-start; gap: 8px; margin: 0;
+    font-size: 13px; color: var(--ink); cursor: pointer; line-height: 1.35;
+  }
+  .cfgpop .subfeeds input[type="checkbox"] {
+    width: auto; margin-top: 2px; flex-shrink: 0;
+  }
 
   .verdict { display: inline-block; margin-right: 8px; padding: 1px 7px; font-size: 11.5px;
              border-radius: 9px; border: 1px solid var(--moss); color: var(--moss); }
@@ -313,6 +321,18 @@
             Dashboard entries merge with the reviewed YAML baseline on the next
             assess run.</p>
           <button type="button" class="vote" id="open-roster">Manage roster</button>
+        </div>
+        <div class="cfgsec">
+          <h3>Email digests</h3>
+          <p class="desc">Nightly digests of new high-relevance calls. Sent to
+            your NCSA / Illinois address after the overnight run. Uncheck all and
+            save to unsubscribe.</p>
+          <label for="sub-email">Email</label>
+          <input id="sub-email" type="email" readonly
+                 placeholder="signed-in address">
+          <div class="subfeeds" id="sub-feeds"></div>
+          <button type="button" class="vote" id="sub-save">Save subscriptions</button>
+          <div class="offline" id="sub-hint"></div>
         </div>
       </div>
     </div>
@@ -709,6 +729,7 @@ async function probeAPI() {
     // not offer controls that are certain to fail.
     if (AUTH.enforced && !AUTH.authenticated) API = false;
     loadRoster();
+    loadSubscriptions();
   }
   document.getElementById("whoami").hidden = !API;
   document.querySelectorAll("[data-vote],[data-chat],[data-fbsend]")
@@ -721,6 +742,54 @@ async function probeAPI() {
     loadFeedback();
   }
 }
+
+async function loadSubscriptions() {
+  const hint = document.getElementById("sub-hint");
+  const box = document.getElementById("sub-feeds");
+  const emailEl = document.getElementById("sub-email");
+  try {
+    const r = await fetch("api/subscriptions");
+    if (!r.ok) {
+      hint.textContent = "Could not load subscriptions.";
+      return;
+    }
+    const data = await r.json();
+    emailEl.value = data.email || "";
+    const on = new Set(data.feeds || []);
+    box.innerHTML = (data.available || []).map(f =>
+      `<label><input type="checkbox" data-feed="${esc(f.id)}"${on.has(f.id) ? " checked" : ""}>` +
+      `<span>${esc(f.label)}</span></label>`).join("");
+    hint.textContent = on.size
+      ? `Subscribed to ${on.size} digest${on.size === 1 ? "" : "s"}.`
+      : "Not subscribed yet.";
+  } catch (e) {
+    hint.textContent = "Could not load subscriptions.";
+  }
+}
+
+document.getElementById("sub-save").addEventListener("click", async () => {
+  const hint = document.getElementById("sub-hint");
+  const feeds = [...document.querySelectorAll("#sub-feeds input[data-feed]:checked")]
+    .map(el => el.dataset.feed);
+  hint.textContent = "Saving…";
+  try {
+    const r = await fetch("api/subscriptions", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feeds }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      hint.textContent = data.detail || `Save failed (${r.status})`;
+      return;
+    }
+    hint.textContent = feeds.length
+      ? `Saved. Digests go to ${data.email} after the nightly run.`
+      : `Unsubscribed ${data.email}.`;
+  } catch (e) {
+    hint.textContent = "Save failed.";
+  }
+});
 
 let FB = {};                            // opportunity id -> {up, down, note}
 

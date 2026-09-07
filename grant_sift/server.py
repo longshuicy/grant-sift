@@ -40,7 +40,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, db
+from . import auth, db, pipeline
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -160,7 +160,8 @@ def whoami(request: Request):
     try:
         p = auth.principal(request)
         st |= {"username": p.label, "display": p.display or p.label,
-               "groups": p.groups, "authenticated": p.authenticated}
+               "email": p.email, "groups": p.groups,
+               "authenticated": p.authenticated}
     except HTTPException as exc:
         st |= {"username": None, "authenticated": False, "error": exc.detail}
     return st
@@ -246,6 +247,71 @@ def roster_retire(request: Request, entry_id: int):
         return {"ok": True, "id": entry_id}
     finally:
         conn.close()
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _normalize_email(raw: str) -> str:
+    email = (raw or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "email required")
+    if "@" not in email:
+        # Keycloak sometimes puts NetID in the email claim.
+        email = f"{email}@illinois.edu"
+    if not _EMAIL_RE.match(email) or len(email) > 200:
+        raise HTTPException(400, "invalid email address")
+    return email
+
+
+def _identity_email(principal: auth.Principal, requested: str | None) -> str:
+    """Bind subscriptions to the signed-in person when auth is on."""
+    if auth.MODE in ("off", "", "none"):
+        return _normalize_email(requested or principal.email or "dev@localhost")
+    # Prefer proxy email / NetID; ignore a mismatched requested address so
+    # one login cannot subscribe a stranger.
+    base = principal.email or principal.username
+    return _normalize_email(base)
+
+
+@app.get("/api/subscriptions")
+def get_subscriptions(request: Request):
+    principal = auth.require_user(request)
+    email = _identity_email(principal, None)
+    conn = _conn()
+    try:
+        feeds = db.list_feeds_for_email(conn, email)
+    finally:
+        conn.close()
+    return {
+        "email": email,
+        "feeds": feeds,
+        "available": [
+            {"id": fid, "label": pipeline.FEED_LABELS.get(fid, fid)}
+            for fid in pipeline.FEEDS
+        ],
+    }
+
+
+@app.put("/api/subscriptions")
+def put_subscriptions(request: Request, payload: dict = Body(...)):
+    principal = auth.require_user(request)
+    _rate_limit(f"sub:{_client(request)}", ROSTER_PER_HOUR)
+    email = _identity_email(principal, payload.get("email"))
+    raw_feeds = payload.get("feeds")
+    if raw_feeds is None:
+        raise HTTPException(400, "feeds list required (empty list unsubscribes)")
+    if not isinstance(raw_feeds, list):
+        raise HTTPException(400, "feeds must be a list")
+    unknown = [f for f in raw_feeds if f not in pipeline.FEEDS]
+    if unknown:
+        raise HTTPException(400, f"unknown feed(s): {unknown}")
+    conn = _conn()
+    try:
+        feeds = db.set_subscriptions(conn, email, list(raw_feeds))
+    finally:
+        conn.close()
+    return {"ok": True, "email": email, "feeds": feeds}
 
 
 @app.get("/api/feedback")

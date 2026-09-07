@@ -537,5 +537,28 @@ def add_roster_entry(conn, entry: dict, created_by=None) -> int:
          entry.get("years"), entry.get("our_role"), entry.get("funders"),
          entry.get("status") or "cold", entry.get("notes"), created_by, now()),
     )
+    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+
+def list_feeds_for_email(conn, email: str) -> list[str]:
+    return [
+        r["feed"]
+        for r in conn.execute(
+            "SELECT feed FROM subscribers WHERE email = ? ORDER BY feed", (email,)
+        )
+    ]
+
+
+def set_subscriptions(conn, email: str, feeds: list[str]) -> list[str]:
+    """Replace this address's feed list. Empty feeds unsubscribes entirely."""
+    email = email.strip().lower()
+    feeds = sorted({f.strip() for f in feeds if f and f.strip()})
+    conn.execute("DELETE FROM subscribers WHERE email = ?", (email,))
+    ts = now()
+    for feed in feeds:
+        conn.execute(
+            "INSERT INTO subscribers (email, feed, created_at) VALUES (?,?,?)",
+            (email, feed, ts),
+        )
     conn.commit()
-    return conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
+    return feeds

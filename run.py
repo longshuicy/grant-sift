@@ -21,6 +21,7 @@ from grant_sift import db, pipeline
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 SMTP_HOST = os.environ.get("GRANT_SIFT_SMTP_HOST", "localhost")
+SMTP_PORT = int(os.environ.get("GRANT_SIFT_SMTP_PORT", "25"))
 SMTP_FROM = os.environ.get("GRANT_SIFT_FROM", "grant-sift@ncsa.illinois.edu")
 
 
@@ -89,7 +90,7 @@ def cmd_digest(conn, args):
     msg["From"] = SMTP_FROM
     msg["To"] = ", ".join(subscribers)
     msg.set_content(body)
-    with smtplib.SMTP(SMTP_HOST) as s:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=60) as s:
         s.send_message(msg)
     pipeline.mark_sent(conn, args.feed, items)
     print(f"\nsent to {len(subscribers)} subscriber(s)")
@@ -99,8 +100,13 @@ def cmd_daily(conn, args):
     cmd_ingest(conn, args)
     cmd_assess(conn, args)
     cmd_export(conn, args)
+    # Send when an SMTP host is configured. Without --send, digests only print;
+    # daily is the production path so empty GRANT_SIFT_SMTP_HOST skips mail.
+    send = bool(SMTP_HOST and SMTP_HOST.strip())
+    if not send:
+        print("GRANT_SIFT_SMTP_HOST unset; digests printed only, not emailed")
     for feed in pipeline.FEEDS:
-        args.feed, args.since = feed, 7
+        args.feed, args.since, args.send = feed, 7, send
         cmd_digest(conn, args)
 
 

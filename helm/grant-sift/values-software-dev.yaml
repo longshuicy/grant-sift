@@ -53,6 +53,12 @@ config:
   GRANT_SIFT_LLM_BASE_URL: https://lumen.ncsa.illinois.edu/v1
   GRANT_SIFT_LLM_MODEL: gemma-4-31b-it
   GRANT_SIFT_FROM: grant-sift@ncsa.illinois.edu
+  # Campus outbound relay (Tech Services KB 47888). Needs a campus-recognized
+  # source IP — pod CIDR 10.42/16 often cannot use this; if digests fail to
+  # send, use Cloud Email Delivery (SocketLabs) or a campus SMTP sidecar.
+  # https://answers.uillinois.edu/illinois/47888
+  GRANT_SIFT_SMTP_HOST: outbound-relays.techservices.illinois.edu
+  GRANT_SIFT_SMTP_PORT: "25"
 
 cronjob:
   enabled: true

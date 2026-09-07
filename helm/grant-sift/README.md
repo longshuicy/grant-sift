@@ -183,6 +183,19 @@ kubectl -n grant-sift rollout restart deploy/grant-sift
 
 The CronJob mounts the **same PVC** as the dashboard at `/data`. `run.py daily` exports to `web/opportunities.json`, which the entrypoint has symlinked to `/data/opportunities.json`. The running pod serves that file directly (no rebuild, no separate JSON mount). Refresh the browser after a run to see updates (`Cache-Control: no-cache`).
 
+Users subscribe under **Personalize → Email digests**. Addresses land in SQLite `subscribers`; nightly digests email each feed when `GRANT_SIFT_SMTP_HOST` is set.
+
+Campus SMTP (from [Tech Services KB 47888](https://answers.uillinois.edu/illinois/47888)):
+
+| Setting | Value |
+|---|---|
+| Host | `outbound-relays.techservices.illinois.edu` |
+| Port | `25` |
+| Auth / TLS | none |
+| From | a real deliverable address (e.g. `grant-sift@ncsa.illinois.edu`) |
+
+**Caveat:** that relay requires a campus-recognized source IP. Pods on private `10.x` (k3s) may be refused — if so, switch to [Cloud Email Delivery](https://answers.uillinois.edu/illinois/85362) (SocketLabs) or send from a campus VM with a public/campus IP.
+
 ```bash
 kubectl -n grant-sift create job --from=cronjob/grant-sift-daily grant-sift-daily-manual
 ```
