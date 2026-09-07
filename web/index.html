@@ -294,18 +294,18 @@
       <div class="cfgpop" id="cfgpop" role="dialog" aria-label="Personalize">
         <div class="cfgsec">
           <h3>Chat gateway</h3>
-          <p class="desc">Your Lumen project key stays in this browser tab. Models
-            are loaded from the gateway for that key.</p>
+          <p class="desc">Any OpenAI-compatible endpoint (Lumen, OpenAI, OpenRouter
+            for Claude, Gemini’s OpenAI bridge, Groq, …). Key stays in this tab only.</p>
           <label for="k-key">API key</label>
-          <input id="k-key" type="password" placeholder="sk_... from Lumen" autocomplete="off">
+          <input id="k-key" type="password" placeholder="API key" autocomplete="off">
           <label for="k-base">Base URL</label>
           <input id="k-base" type="text" placeholder="https://lumen.ncsa.illinois.edu/v1"
                  value="https://lumen.ncsa.illinois.edu/v1">
           <label for="k-model">Model</label>
-          <select id="k-model" aria-label="Model">
-            <option value="gemma-4-31b-it">gemma-4-31b-it</option>
-          </select>
-          <div class="offline" id="k-note">Enter a key to load models available to you.</div>
+          <input id="k-model" type="text" placeholder="e.g. gemma-4-31b-it, gpt-4o, anthropic/claude-sonnet-4"
+                 value="gemma-4-31b-it">
+          <div class="offline" id="k-note">Must speak /v1/chat/completions. Extend hosts via
+            GRANT_SIFT_CHAT_ALLOWED_HOSTS if needed.</div>
         </div>
         <div class="cfgsec">
           <h3>Collaborator roster</h3>
@@ -587,78 +587,7 @@ const keyBar = () => ({
   base:  document.getElementById("k-base").value.trim(),
 });
 
-const DEFAULT_MODEL = "gemma-4-31b-it";
-let MODELS = [DEFAULT_MODEL];
-
-function fillModelSelect(ids, preferred) {
-  const sel = document.getElementById("k-model");
-  const want = preferred || sel.value || DEFAULT_MODEL;
-  const list = ids.length ? ids : [DEFAULT_MODEL];
-  MODELS = list;
-  sel.innerHTML = list.map(id =>
-    `<option value="${esc(id)}">${esc(id)}</option>`).join("");
-  sel.value = list.includes(want) ? want : list[0];
-}
-
-async function refreshModels() {
-  const note = document.getElementById("k-note");
-  const { key, base, model } = keyBar();
-  if (!key) {
-    note.textContent = "Enter a key to load models available to you.";
-    return;
-  }
-  if (!API) {
-    note.textContent = "Server offline; cannot list models.";
-    return;
-  }
-  note.textContent = "Loading models…";
-  try {
-    const r = await fetch("api/models", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: key, base_url: base }),
-      signal: AbortSignal.timeout(30000),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      note.textContent = typeof d.detail === "string" ? d.detail : `failed (${r.status})`;
-      return;
-    }
-    const ids = d.models || [];
-    if (!ids.length) {
-      note.textContent = "Gateway returned no models for this key.";
-      return;
-    }
-    fillModelSelect(ids, model);
-    note.textContent = `${ids.length} model${ids.length === 1 ? "" : "s"} available to your key.`;
-    document.querySelectorAll("[data-chatmodel]").forEach(el => {
-      el.textContent = document.getElementById("k-model").value || "—";
-    });
-    try {
-      sessionStorage.setItem("gs.chat", JSON.stringify({
-        model: document.getElementById("k-model").value, base,
-      }));
-    } catch (e) {}
-  } catch (err) {
-    note.textContent = err.name === "TimeoutError" ? "timed out listing models" : "could not reach the server";
-  }
-}
-
-// sessionStorage, not localStorage: the key should not outlive the tab.
-try {
-  const saved = JSON.parse(sessionStorage.getItem("gs.chat") || "{}");
-  if (saved.base) document.getElementById("k-base").value = saved.base;
-  if (saved.model) fillModelSelect([saved.model], saved.model);
-} catch (e) {}
-
-document.getElementById("k-base").addEventListener("change", () => {
-  try {
-    const { model, base } = keyBar();
-    sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
-  } catch (e) {}
-  refreshModels();
-});
-document.getElementById("k-model").addEventListener("change", () => {
+function saveChatSettings() {
   try {
     const { model, base } = keyBar();
     sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
@@ -666,13 +595,19 @@ document.getElementById("k-model").addEventListener("change", () => {
   document.querySelectorAll("[data-chatmodel]").forEach(el => {
     el.textContent = keyBar().model || "—";
   });
-});
+}
+
+// sessionStorage, not localStorage: the key should not outlive the tab.
+try {
+  const saved = JSON.parse(sessionStorage.getItem("gs.chat") || "{}");
+  if (saved.base) document.getElementById("k-base").value = saved.base;
+  if (saved.model) document.getElementById("k-model").value = saved.model;
+} catch (e) {}
+
+["k-base", "k-model"].forEach(id =>
+  document.getElementById(id).addEventListener("change", saveChatSettings));
 document.getElementById("k-key").addEventListener("input", () => {
   document.getElementById("k-key").classList.remove("hilite");
-});
-document.getElementById("k-key").addEventListener("change", refreshModels);
-document.getElementById("k-key").addEventListener("blur", () => {
-  if (keyBar().key) refreshModels();
 });
 
 function turnHTML(t) {
@@ -704,7 +639,6 @@ function openConfig(opts = {}) {
     // Defer focus so it isn't stolen by the click that opened this panel.
     setTimeout(() => { key.focus(); key.select?.(); }, 0);
   }
-  if (keyBar().key) refreshModels();
 }
 
 function closeConfig() {

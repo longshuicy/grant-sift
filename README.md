@@ -191,7 +191,12 @@ chars) — then appends the chat turns. It does **not** re-fetch the live
 solicitation. Answers that need the full PDF should say so and point at the
 dashboard link.
 
-`base_url` must be https and on `GRANT_SIFT_CHAT_ALLOWED_HOSTS`. The process
+`base_url` must be https and on `GRANT_SIFT_CHAT_ALLOWED_HOSTS` (exact host or
+`.suffix` like `.openai.azure.com`). Defaults cover Lumen, OpenAI, OpenRouter
+(Claude etc.), Gemini’s OpenAI bridge, Groq, Fireworks, Together, DeepSeek,
+Mistral, and Azure OpenAI. The proxy speaks **OpenAI-compatible**
+`/chat/completions` only — use OpenRouter (or similar) for Claude, not the
+native Anthropic Messages API. The process
 still emits uvicorn access lines (path only; `GRANT_SIFT_ACCESS_LOG=off` to
 silence) and in-memory rate-limit counters. Behind Keycloak the chat is private
 rather than anonymous.

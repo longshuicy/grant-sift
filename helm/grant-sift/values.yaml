@@ -92,7 +92,7 @@ config:
   GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-user
   GRANT_SIFT_AUTH_GROUPS_HEADER: x-forwarded-groups
   GRANT_SIFT_AUTH_REQUIRED_GROUP: ""
-  GRANT_SIFT_CHAT_ALLOWED_HOSTS: "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai"
+  GRANT_SIFT_CHAT_ALLOWED_HOSTS: "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai,generativelanguage.googleapis.com,api.fireworks.ai,api.together.xyz,api.deepseek.com,api.mistral.ai,api.anthropic.com,.openai.azure.com"
   GRANT_SIFT_ACCESS_LOG: "on"
   GRANT_SIFT_DAILY_LIMIT: "400"
   GRANT_SIFT_SMTP_HOST: ""

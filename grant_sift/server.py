@@ -47,16 +47,27 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 # Hosts this proxy will forward to. Without an allowlist the endpoint is an
 # SSRF pivot: a caller could name any internal address as base_url and read the
-# response through us. Extend with GRANT_SIFT_CHAT_ALLOWED_HOSTS, comma
-# separated, rather than by loosening the check.
+# response through us. Entries may be exact hostnames or a leading-dot suffix
+# (e.g. .openai.azure.com). Extend with GRANT_SIFT_CHAT_ALLOWED_HOSTS.
+_DEFAULT_CHAT_HOSTS = (
+    "lumen.ncsa.illinois.edu,"
+    "api.openai.com,"
+    "api.groq.com,"
+    "openrouter.ai,"
+    "generativelanguage.googleapis.com,"
+    "api.fireworks.ai,"
+    "api.together.xyz,"
+    "api.deepseek.com,"
+    "api.mistral.ai,"
+    "api.anthropic.com,"
+    ".openai.azure.com"
+)
 ALLOWED_HOSTS = {
     h.strip().lower()
-    for h in os.environ.get(
-        "GRANT_SIFT_CHAT_ALLOWED_HOSTS",
-        "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai",
-    ).split(",")
+    for h in os.environ.get("GRANT_SIFT_CHAT_ALLOWED_HOSTS", _DEFAULT_CHAT_HOSTS).split(",")
     if h.strip()
 }
+
 
 # Heavy on feedback because each row feeds the next classification prompt, so
 # volume there is not just noise, it moves the model. Chat is looser: the
@@ -329,16 +340,31 @@ def post_feedback(request: Request, payload: dict = Body(...)):
         conn.close()
 
 
+def _host_allowed(host: str) -> bool:
+    host = (host or "").lower()
+    if not host:
+        return False
+    if host in ALLOWED_HOSTS:
+        return True
+    for entry in ALLOWED_HOSTS:
+        if entry.startswith(".") and (host.endswith(entry) or host == entry[1:]):
+            return True
+        if entry.startswith("*.") and (host.endswith(entry[1:]) or host == entry[2:]):
+            return True
+    return False
+
+
 def _check_base_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme != "https":
         raise HTTPException(400, "base_url must be https")
     host = (parsed.hostname or "").lower()
-    if host not in ALLOWED_HOSTS:
+    if not _host_allowed(host):
         raise HTTPException(
             403,
             f"host {host!r} is not allowed. Permitted: {sorted(ALLOWED_HOSTS)}. "
-            "Set GRANT_SIFT_CHAT_ALLOWED_HOSTS to extend it.",
+            "Set GRANT_SIFT_CHAT_ALLOWED_HOSTS to extend it "
+            "(exact hosts or .suffix patterns).",
         )
     return base_url.rstrip("/")
 
@@ -482,10 +508,12 @@ def chat(request: Request, payload: dict = Body(...)):
         "messages": [
             {"role": "system", "content": f"{CHAT_SYSTEM}\n\nTHE CALL:\n{context}"}
         ] + clean,
-        # Same reason as the pipeline: reasoning is billed as output and can eat
-        # the whole budget before any answer appears.
-        "chat_template_kwargs": {"enable_thinking": False},
     }
+    # Lumen / some vLLM stacks bill reasoning as output; OpenAI-compatible
+    # cloud APIs reject this unknown field, so only send it there.
+    host = (urlparse(base_url).hostname or "").lower()
+    if host == "lumen.ncsa.illinois.edu" or host.endswith(".ncsa.illinois.edu"):
+        body["chat_template_kwargs"] = {"enable_thinking": False}
 
     try:
         r = requests.post(

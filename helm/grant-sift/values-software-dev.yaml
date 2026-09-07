@@ -4,24 +4,19 @@
 # Cluster facts this file assumes:
 #   - ingress class: traefik (+ letsencrypt via certresolver)
 #   - RWX storage: nfs-taiga (default)
-#   - Keycloak: https://keycloak.software-dev.ncsa.illinois.edu
+#   - wildcard DNS: *.software-dev.ncsa.illinois.edu
+#   - Keycloak: https://keycloak.software-dev.ncsa.illinois.edu (enable later)
 #   - pod CIDR (k3s): 10.42.0.0/16
 #
 # Pair with a local values-secrets.yaml (gitignored). See README.md.
 
 image:
   repository: ghcr.io/longshuicy/grant-sift
-  tag: main                 # or a release tag / sha-… after CI publishes
+  tag: main
   pullPolicy: Always
 
-# If the GHCR package is private, create a pull secret and list it here:
-#   kubectl -n grant-sift create secret docker-registry ghcr-pull \
-#     --docker-server=ghcr.io \
-#     --docker-username=YOUR_GITHUB_USER \
-#     --docker-password=YOUR_GHCR_PAT
-# imagePullSecrets:
-#   - name: ghcr-pull
-imagePullSecrets: []
+imagePullSecrets:
+  - name: ghcr-pull
 
 persistence:
   enabled: true
@@ -40,14 +35,13 @@ roster:
 
 config:
   GRANT_SIFT_DB: /data/grant-sift.db
-  GRANT_SIFT_AUTH: proxy
-  # oauth2-proxy pods talk to the app from the pod network
+  # Auth off until a Keycloak client exists; flip to proxy + oauth2-proxy below.
+  GRANT_SIFT_AUTH: "off"
   GRANT_SIFT_TRUSTED_PROXIES: "10.42.0.0/16"
   GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-user
   GRANT_SIFT_AUTH_EMAIL_HEADER: x-forwarded-email
   GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-user
   GRANT_SIFT_AUTH_GROUPS_HEADER: x-forwarded-groups
-  # Optional Keycloak group gate — create the group and assign users first
   GRANT_SIFT_AUTH_REQUIRED_GROUP: ""
   GRANT_SIFT_LLM_BASE_URL: https://lumen.ncsa.illinois.edu/v1
   GRANT_SIFT_LLM_MODEL: gemma-4-31b-it
@@ -58,12 +52,29 @@ cronjob:
   schedule: "0 6 * * *"
   timeZone: America/Chicago
 
-# Users hit oauth2-proxy, not the app Ingress.
+# Direct Traefik ingress on the app (Keycloak/oauth2-proxy not wired yet).
 ingress:
-  enabled: false
-
-oauth2-proxy:
   enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.middlewares: redirect-web-to-443@internal
+  hosts:
+    - host: grant-sift.software-dev.ncsa.illinois.edu
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - grant-sift.software-dev.ncsa.illinois.edu
+      secretName: grant-sift-tls
+
+# Enable after creating a Keycloak confidential client + grant-sift-oauth2 Secret,
+# then set GRANT_SIFT_AUTH=proxy and ingress.enabled=false above.
+oauth2-proxy:
+  enabled: false
   config:
     existingSecret: grant-sift-oauth2
     configFile: |-
@@ -81,7 +92,6 @@ oauth2-proxy:
       user_id_claim = "preferred_username"
   extraArgs:
     - --provider=keycloak-oidc
-    # Change REALM to the Keycloak realm that holds the grant-sift client.
     - --oidc-issuer-url=https://keycloak.software-dev.ncsa.illinois.edu/realms/REALM
     - --reverse-proxy=true
     - --pass-user-headers=true
@@ -102,6 +112,4 @@ oauth2-proxy:
     tls:
       - hosts:
           - grant-sift.software-dev.ncsa.illinois.edu
-        # Traefik certresolver issues the cert; secretName often unused but
-        # some charts still want a tls block present.
         secretName: grant-sift-tls
