@@ -21,6 +21,12 @@ secrets.yml
 *.pem
 *.key
 credentials.json
+helm/**/values-secrets.yaml
+helm/**/charts/
+!helm/**/Chart.lock
+
+# Deployment roster: real collaborator names/status. Ship the example only.
+config/roster.yaml
 
 # Python
 __pycache__/

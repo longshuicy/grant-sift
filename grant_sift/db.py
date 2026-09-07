@@ -74,8 +74,25 @@ CREATE TABLE IF NOT EXISTS feedback (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     opportunity_id  TEXT,
     verdict         TEXT,            -- up | down
+    aspect          TEXT,            -- score | category | match: what was wrong
     note            TEXT,
+    created_by      TEXT,            -- SSO username when auth is on
     created_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS roster_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain       TEXT NOT NULL,
+    collaborator TEXT NOT NULL,
+    project      TEXT,
+    years        TEXT,
+    our_role     TEXT,
+    funders      TEXT,               -- comma separated, kept as written
+    status       TEXT DEFAULT 'cold',
+    notes        TEXT,
+    created_by   TEXT,
+    created_at   TEXT,
+    retired      INTEGER DEFAULT 0   -- hidden from the merge without losing it
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -122,6 +139,11 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     if "match_domain" not in acols:
         conn.execute("ALTER TABLE assessments ADD COLUMN match_domain TEXT")
         conn.commit()
+    fcols = {r["name"] for r in conn.execute("PRAGMA table_info(feedback)")}
+    for col in ("aspect", "created_by"):
+        if col not in fcols:
+            conn.execute(f"ALTER TABLE feedback ADD COLUMN {col} TEXT")
+            conn.commit()
 
     # Opportunities enriched before detail_cache existed already hold the data.
     # Seed from them once so upgrading an existing database does not re-fetch
@@ -407,15 +429,113 @@ def prune_expired(conn, grace_days: int = 30):
     return len(ids)
 
 
-def few_shot_corrections(conn, limit: int = 12):
-    """Human disagreements become examples in the next prompt. No fine-tuning."""
+def latest_feedback(conn):
+    """The current verdict per opportunity: one row each, most recent wins.
+
+    Deduplicated because the prompt window is small and a call rated
+    repeatedly used to evict every other lesson. Nineteen clicks on one
+    solicitation filled all twelve slots with the same sentence.
+    """
     return conn.execute(
-        """SELECT o.title, o.synopsis, a.score, f.verdict, f.note
+        """SELECT f.opportunity_id, f.verdict, f.aspect, f.note, f.created_at,
+                  f.created_by, o.title, a.score, a.category, a.match_name
            FROM feedback f
+           JOIN (SELECT opportunity_id, MAX(id) mid
+                 FROM feedback GROUP BY opportunity_id) t
+             ON t.mid = f.id
            JOIN opportunities o ON o.id = f.opportunity_id
            LEFT JOIN assessments a ON a.opportunity_id = f.opportunity_id
-           WHERE (f.verdict = 'down' AND a.score >= 60)
-              OR (f.verdict = 'up'   AND a.score <  60)
-           ORDER BY f.created_at DESC LIMIT ?""",
-        (limit,),
+           ORDER BY f.created_at DESC"""
     ).fetchall()
+
+
+def human_verdicts(conn):
+    """opportunity_id -> the current human verdict, for ranking and digests.
+
+    Applied with no model call. A person saying "not for us" outranks a score,
+    so it takes effect the moment it is recorded instead of waiting for the
+    next pass.
+    """
+    return {
+        r["opportunity_id"]: {"verdict": r["verdict"], "aspect": r["aspect"],
+                              "note": r["note"], "by": r["created_by"]}
+        for r in latest_feedback(conn)
+    }
+
+
+def few_shot_corrections(conn, limit: int = 12, confirmations: int = 3):
+    """Calibration examples for the next classification prompt.
+
+    Three changes from taking the newest twelve rows:
+
+    Deduplicated per opportunity, so one heavily rated call cannot crowd out
+    everything else.
+
+    Ordered by how far apart the model and the reviewer were, not by recency. A
+    thumbs-down on a 95 teaches more than one on a 61, and recency ordering
+    buried the strong signals behind whatever was clicked last.
+
+    Agreement is included, capped at `confirmations`. A thumbs-up on a
+    correctly high score used to be discarded as uninformative, which made most
+    clicks no-ops. A few anchors also stop the prompt reading as nothing but
+    complaints, which on its own drags scores downward.
+    """
+    disagreements, agreements = [], []
+    for r in latest_feedback(conn):
+        score = r["score"]
+        if score is None:
+            continue
+        if r["verdict"] == "down":
+            bucket = disagreements if score >= 50 else agreements
+            bucket.append((score, r))
+        else:
+            bucket = disagreements if score < 70 else agreements
+            bucket.append((100 - score, r))
+    disagreements.sort(key=lambda x: -x[0])
+    agreements.sort(key=lambda x: -x[0])
+    return ([r for _, r in disagreements[:limit]]
+            + [r for _, r in agreements[:confirmations]])
+
+
+def roster_additions(conn):
+    """Dashboard-added roster entries, shaped like the YAML ones.
+
+    Merged with config/roster.yaml at assessment time so the model sees one
+    roster. Never written back into that file: it is the reviewed baseline and
+    carries comments an automated writer would destroy.
+    """
+    out = []
+    for r in conn.execute(
+        """SELECT domain, collaborator, project, years, our_role, funders,
+                  status, notes, created_by
+           FROM roster_entries WHERE retired = 0 ORDER BY created_at"""
+    ):
+        origin = ("added via the dashboard by " + r["created_by"]) if r["created_by"] \
+                 else "added via the dashboard"
+        out.append({
+            "domain": r["domain"],
+            "collaborator": r["collaborator"],
+            "project": r["project"] or "",
+            "years": r["years"] or "",
+            "our_role": r["our_role"] or "",
+            "funders": [f.strip() for f in (r["funders"] or "").split(",") if f.strip()],
+            "status": r["status"] or "cold",
+            # Origin rides in notes because roster_block renders only the eight
+            # known keys and would silently drop a new one.
+            "notes": (r["notes"] + ". " + origin) if r["notes"] else origin,
+        })
+    return out
+
+
+def add_roster_entry(conn, entry: dict, created_by=None) -> int:
+    conn.execute(
+        """INSERT INTO roster_entries
+             (domain, collaborator, project, years, our_role, funders,
+              status, notes, created_by, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (entry["domain"], entry["collaborator"], entry.get("project"),
+         entry.get("years"), entry.get("our_role"), entry.get("funders"),
+         entry.get("status") or "cold", entry.get("notes"), created_by, now()),
+    )
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]

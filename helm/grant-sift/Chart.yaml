@@ -1,0 +1,21 @@
+apiVersion: v2
+name: grant-sift
+description: Funding watch dashboard, pipeline CronJob, and optional oauth2-proxy front door
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+# software-dev cluster is currently k3s 1.34; Helm 3.9+ is enough to install.
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - grants
+  - funding
+  - keycloak
+maintainers:
+  - name: grant-sift
+dependencies:
+  # Official chart: https://github.com/oauth2-proxy/manifests
+  # SQLite is a file on a PVC — there is no separate "sqlite" chart to vendor.
+  - name: oauth2-proxy
+    version: "7.12.15"
+    repository: https://oauth2-proxy.github.io/manifests
+    condition: oauth2-proxy.enabled

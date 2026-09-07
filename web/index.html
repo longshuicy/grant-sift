@@ -132,24 +132,136 @@
   .fbbox { margin-top: 8px; display: none; gap: 6px; }
   .fbbox.on { display: flex; flex-wrap: wrap; }
   .fbbox input { flex: 1 1 260px; font: inherit; font-size: 13px; padding: 4px 7px;
-                 border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+                 border: 1px solid var(--rule); background: #fff; color: var(--ink); }
 
-  .chat { margin-top: 10px; display: none; border-left: 2px solid var(--rule); padding-left: 12px; }
+  .chat {
+    display: none; margin-top: 14px; padding: 14px 14px 12px;
+    background: #fff; border: 1px solid var(--rule); border-left: 3px solid var(--moss);
+  }
   .chat.on { display: block; }
-  .chat .log { max-height: 320px; overflow-y: auto; font-size: 13.5px; }
-  .chat .turn { margin: 8px 0; white-space: pre-wrap; }
-  .chat .turn b { color: var(--moss); font-weight: 500; }
-  .chat form { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-  .chat input[type=text] { flex: 1 1 240px; font: inherit; font-size: 13px; padding: 4px 7px;
-                 border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
-  .chat .hint { font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
-  .keybar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-            margin: 0 0 14px; padding: 9px 12px; font-size: 13px;
-            background: var(--paper); border: 1px solid var(--rule); }
-  .keybar input, .keybar select { font: inherit; font-size: 13px; padding: 3px 6px;
-            border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
-  .keybar input[type=password] { flex: 1 1 200px; }
-  .offline { color: var(--ink-faint); font-size: 12.5px; }
+  .chat .chathead {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px;
+    margin-bottom: 8px;
+  }
+  .chat .chathead b { font-size: 13.5px; font-weight: 600; color: var(--moss); }
+  .chat .chathead .meta { font-size: 12px; color: var(--ink-faint); }
+  .chat .chathead .model { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .chat .log {
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 360px; overflow-y: auto; font-size: 13.5px;
+    padding: 4px 0; background: transparent; border: none; min-height: 0;
+  }
+  .chat .log:empty { display: none; }
+  .chat .turn {
+    max-width: min(92%, 520px); padding: 9px 12px; white-space: pre-wrap;
+    line-height: 1.45; border: 1px solid var(--rule);
+  }
+  .chat .turn .from {
+    display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;
+    color: var(--ink-faint); letter-spacing: 0.02em;
+  }
+  .chat .turn.user {
+    align-self: flex-end; background: #eef3f0; border-color: #d2ddd7;
+  }
+  .chat .turn.user .from { color: var(--moss); }
+  .chat .turn.assistant {
+    align-self: flex-start; background: #fff; border-color: var(--rule);
+  }
+  .chat .turn.assistant .from { color: var(--ink-soft); }
+  .chat form { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .chat input[type=text] { flex: 1 1 240px; font: inherit; font-size: 13px; padding: 6px 8px;
+                 border: 1px solid var(--rule); background: #fff; color: var(--ink); }
+  .chat .hint { font-size: 12px; color: var(--ink-faint); }
+  .chat .privacy { font-size: 12px; color: var(--ink-faint); margin-bottom: 10px;
+                   max-width: 68ch; line-height: 1.45; }
+  .chatfoot { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+
+  .cfgpop input.hilite {
+    outline: 2px solid var(--moss); outline-offset: 1px;
+    border-color: var(--moss);
+    box-shadow: 0 0 0 3px rgba(47, 93, 80, 0.15);
+  }
+
+  .whoami { margin-left: auto; display: flex; align-items: center; gap: 10px; position: relative; }
+  .who { font-size: 12.5px; color: var(--ink-faint); }
+  .cfgbtn {
+    font: inherit; font-size: 13px; padding: 5px 11px; cursor: pointer;
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: #fff; color: var(--ink-soft);
+  }
+  .cfgbtn:hover, .cfgbtn[aria-expanded="true"] {
+    color: var(--moss); border-color: var(--moss);
+  }
+  .cfgpop {
+    display: none; position: absolute; right: 0; top: calc(100% + 8px); z-index: 40;
+    width: min(440px, calc(100vw - 36px)); padding: 0;
+    background: #fff; border: 1px solid var(--rule); box-shadow: 0 8px 24px rgba(25,33,30,.08);
+    font-size: 13px;
+  }
+  .cfgpop.on { display: block; }
+  .cfgpop .cfgsec { padding: 14px 16px; border-bottom: 1px solid var(--rule); }
+  .cfgpop .cfgsec:last-child { border-bottom: none; }
+  .cfgpop .cfgsec h3 { margin: 0 0 4px; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+  .cfgpop .cfgsec .desc { margin: 0 0 10px; font-size: 12.5px; color: var(--ink-faint); line-height: 1.45; }
+  .cfgpop label { display: block; font-size: 12px; color: var(--ink-soft); margin: 8px 0 3px; }
+  .cfgpop label:first-of-type { margin-top: 0; }
+  .cfgpop input, .cfgpop select { width: 100%; font: inherit; font-size: 13px; padding: 6px 8px;
+                  border: 1px solid var(--rule); background: #fff; color: var(--ink); }
+  .cfgpop .offline { color: var(--ink-faint); font-size: 12px; margin-top: 8px; line-height: 1.4; }
+  .cfgpop .cfgsec .vote { margin-top: 4px; }
+
+  .verdict { display: inline-block; margin-right: 8px; padding: 1px 7px; font-size: 11.5px;
+             border-radius: 9px; border: 1px solid var(--moss); color: var(--moss); }
+  .verdict.down { border-color: #a4453a; color: #a4453a; }
+  .fbbox select { font: inherit; font-size: 13px; padding: 4px 6px;
+                  border: 1px solid var(--rule); background: #fff; color: var(--ink); }
+
+  input, select, textarea {
+    background: #fff; color: var(--ink);
+  }
+  .search, .sortsel { background: #fff; }
+
+  .pager {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin: 18px 0 8px; font-size: 13px; color: var(--ink-soft);
+  }
+  .pager .pages { display: flex; flex-wrap: wrap; gap: 4px; }
+  .pager button {
+    font: inherit; font-size: 13px; padding: 4px 10px; cursor: pointer;
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: #fff; color: var(--ink-soft);
+  }
+  .pager button:hover:not(:disabled) { color: var(--moss); border-color: var(--moss); }
+  .pager button[aria-current="page"] {
+    background: var(--ink); color: var(--paper); border-color: var(--ink);
+  }
+  .pager button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(25, 33, 30, 0.35);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal-backdrop.on { display: flex; }
+  .modal {
+    width: min(640px, 100%); max-height: min(84vh, 720px); overflow: auto;
+    background: #fff; border: 1px solid var(--rule); padding: 18px 20px 20px;
+  }
+  .modal header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .modal header h2 { margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 600; }
+  .modal .x {
+    margin-left: auto; font: inherit; font-size: 13px; cursor: pointer;
+    color: var(--ink-soft); background: transparent; border: none; padding: 4px 6px;
+  }
+  .modal .x:hover { color: var(--moss); }
+  .modal form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .modal input, .modal select { font: inherit; font-size: 13px; padding: 6px 8px;
+           border: 1px solid var(--rule); background: #fff; color: var(--ink); }
+  .modal .wide { flex: 1 1 220px; }
+  .modal .rlist { margin-top: 12px; font-size: 12.5px; color: var(--ink-soft); }
+  .modal .rlist div { padding: 3px 0; }
+  .modal .note { font-size: 12px; color: var(--ink-faint); margin-top: 10px; max-width: 74ch;
+                 line-height: 1.45; }
 
   .empty { padding: 60px 0; text-align: center; color: var(--ink-soft); }
   .empty b { font-family: var(--serif); font-size: 19px; display: block; color: var(--ink); margin-bottom: 6px; }
@@ -175,6 +287,35 @@
     <div class="stat"><b id="n-open">..</b><i>open calls</i></div>
     <div class="stat warn"><b id="n-soon">..</b><i>close within 30 days</i></div>
     <div class="stat"><b id="n-match">..</b><i>match a past collaborator</i></div>
+    <div class="whoami" id="whoami" hidden>
+      <div class="who" id="who"></div>
+      <button type="button" class="cfgbtn" id="cfgbtn" aria-expanded="false"
+              aria-controls="cfgpop">Personalize</button>
+      <div class="cfgpop" id="cfgpop" role="dialog" aria-label="Personalize">
+        <div class="cfgsec">
+          <h3>Chat gateway</h3>
+          <p class="desc">Your Lumen project key stays in this browser tab. Models
+            are loaded from the gateway for that key.</p>
+          <label for="k-key">API key</label>
+          <input id="k-key" type="password" placeholder="sk_... from Lumen" autocomplete="off">
+          <label for="k-base">Base URL</label>
+          <input id="k-base" type="text" placeholder="https://lumen.ncsa.illinois.edu/v1"
+                 value="https://lumen.ncsa.illinois.edu/v1">
+          <label for="k-model">Model</label>
+          <select id="k-model" aria-label="Model">
+            <option value="gemma-4-31b-it">gemma-4-31b-it</option>
+          </select>
+          <div class="offline" id="k-note">Enter a key to load models available to you.</div>
+        </div>
+        <div class="cfgsec">
+          <h3>Collaborator roster</h3>
+          <p class="desc">Add past collaborations used when scoring new calls.
+            Dashboard entries merge with the reviewed YAML baseline on the next
+            assess run.</p>
+          <button type="button" class="vote" id="open-roster">Manage roster</button>
+        </div>
+      </div>
+    </div>
   </header>
 
   <div id="alarm"></div>
@@ -190,29 +331,54 @@
       <option value="">All roster areas</option>
     </select>
     <select id="sort" class="sortsel">
+      <option value="score" selected>Sort: highest relevance</option>
       <option value="deadline">Sort: soonest deadline</option>
-      <option value="score">Sort: highest relevance</option>
       <option value="new">Sort: recently added</option>
     </select>
   </div>
 
-  <div class="keybar" id="keybar" hidden>
-    <span><b>Chat key</b></span>
-    <input id="k-key" type="password" placeholder="your API key (sk_...)" autocomplete="off">
-    <input id="k-model" type="text" placeholder="model" value="gemma-4-31b-it" size="16">
-    <input id="k-base" type="text" placeholder="base URL" value="https://lumen.ncsa.illinois.edu/v1" size="30">
-    <span class="offline" id="k-note">held in this tab only, never stored on the server</span>
-  </div>
-
   <div class="tally" id="tally"></div>
   <main id="list"></main>
+  <nav class="pager" id="pager" hidden aria-label="Pagination"></nav>
 
   <footer id="foot"></footer>
 </div>
 
+<div class="modal-backdrop" id="roster-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="roster-title">
+    <header>
+      <h2 id="roster-title">Collaborator roster</h2>
+      <button type="button" class="x" id="roster-close" aria-label="Close">Close</button>
+    </header>
+    <form id="rform">
+      <input id="r-domain" class="wide" placeholder="domain, e.g. hydrology" maxlength="120" required>
+      <input id="r-collab" class="wide" placeholder="collaborator, e.g. R. Alvarez (PI, CEE)" maxlength="200" required>
+      <input id="r-project" class="wide" placeholder="project" maxlength="300">
+      <input id="r-years" placeholder="years" size="10" maxlength="40">
+      <input id="r-role" class="wide" placeholder="our role" maxlength="300">
+      <input id="r-funders" placeholder="funders, comma separated" size="22" maxlength="200">
+      <select id="r-status">
+        <option value="cold">cold</option>
+        <option value="warm">warm</option>
+        <option value="do-not-contact">do-not-contact</option>
+      </select>
+      <input id="r-notes" class="wide" placeholder="notes" maxlength="500">
+      <button class="vote" type="submit">Add</button>
+      <span class="hint" id="r-hint"></span>
+    </form>
+    <div class="rlist" id="rlist"></div>
+    <div class="note">Kept separately from <code>config/roster.yaml</code>, which
+      stays the reviewed baseline. The two are merged when the classifier runs, so
+      a new entry affects the next assessment. It cannot retroactively match calls
+      already scored: run <code>assess --rematch</code> for that. New entries
+      default to cold, because nothing here has been reviewed yet.</div>
+  </div>
+</div>
+
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "deadline", AREA = "";
+let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "";
+let PAGE = 1, PAGE_SIZE = 25;
 
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
 const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -261,6 +427,13 @@ function rowHTML(o) {
   const cap = o.indirect_cap
     ? `<span class="cap">indirect capped at ${esc(o.indirect_cap)}</span>` : "";
 
+  const hv = o.human;
+  const verdict = hv
+    ? `<span class="verdict ${hv.verdict === "down" ? "down" : ""}">your group: ${
+        hv.verdict === "down"
+          ? "not for us" + (hv.aspect && hv.aspect !== "score" ? ` (${esc(hv.aspect)})` : "")
+          : "useful"}</span>`
+    : "";
   const area = o.match_domain
     ? `<button class="areatag" data-area="${esc(o.match_domain)}" title="Show only this roster area">${esc(o.match_domain)}</button>`
     : "";
@@ -278,6 +451,7 @@ function rowHTML(o) {
         <span class="track" role="img" aria-label="Relevance ${o.score} of 100"><span class="fill" style="width:${Math.max(4, o.score * 0.74)}px"></span></span>
         <span class="num" title="How well this matches the group's work, scored 0 to 100 by the model">relevance ${o.score}/100</span>
       </div>
+      ${verdict}
       <h2 class="title">${o.url
         ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>`
         : esc(o.title)}</h2>
@@ -292,16 +466,35 @@ function rowHTML(o) {
         <span class="votenote" data-fb="${esc(o.id)}"></span>
       </div>
       <div class="fbbox" data-fbbox="${esc(o.id)}">
+        <select data-fbaspect="${esc(o.id)}" aria-label="what was wrong">
+          <option value="score">the score</option>
+          <option value="category">the category</option>
+          <option value="match">the named collaborator</option>
+        </select>
         <input type="text" maxlength="500" placeholder="one comment, optional: why?" data-fbnote="${esc(o.id)}">
         <button class="vote" data-fbsend="${esc(o.id)}">Send</button>
       </div>
       <div class="chat" data-chatbox="${esc(o.id)}">
+        <div class="chathead">
+          <b>Ask about this call</b>
+          <span class="meta">model <span class="model" data-chatmodel="${esc(o.id)}"></span>
+            · not stored on the server</span>
+        </div>
+        <div class="privacy">Not recorded. This conversation lives only in this
+          browser tab, goes to your own API key through a proxy that stores
+          nothing, and is gone when you close or reload the tab. Copy or export
+          it if you want to keep it.</div>
         <div class="log" data-chatlog="${esc(o.id)}"></div>
         <form data-chatform="${esc(o.id)}">
           <input type="text" placeholder="e.g. what would we need a domain PI for here?" data-chatinput="${esc(o.id)}">
           <button class="vote" type="submit">Ask</button>
         </form>
-        <div class="hint" data-chathint="${esc(o.id)}"></div>
+        <div class="chatfoot">
+          <button class="vote" data-copy="${esc(o.id)}" type="button">Copy</button>
+          <button class="vote" data-export="${esc(o.id)}" type="button">Export .md</button>
+          <button class="vote" data-clear="${esc(o.id)}" type="button">Clear</button>
+          <span class="hint" data-chathint="${esc(o.id)}"></span>
+        </div>
       </div>
       ${o.synopsis
         ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
@@ -312,18 +505,72 @@ function rowHTML(o) {
 
 function render() {
   const rows = sortRows(DATA.filter(matches));
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  if (PAGE > pages) PAGE = pages;
+  const start = (PAGE - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+
   document.getElementById("tally").textContent =
-    `${rows.length} of ${DATA.length} shown` + (AREA ? ` in "${AREA}"` : "");
-  document.getElementById("list").innerHTML = rows.length
-    ? rows.map(rowHTML).join("")
+    `${rows.length} of ${DATA.length} shown` +
+    (AREA ? ` in "${AREA}"` : "") +
+    (rows.length ? ` · page ${PAGE} of ${pages}` : "");
+
+  document.getElementById("list").innerHTML = pageRows.length
+    ? pageRows.map(rowHTML).join("")
     : `<div class="empty"><b>Nothing matches those filters.</b>
          Clear a filter, or widen the search.</div>`;
-  // The rows were just replaced, so the new buttons need their state back.
+
+  renderPager(pages, rows.length);
+
+  // Restore open chat panels that were on this page before re-render.
+  for (const id of Object.keys(CHATS)) {
+    const box = document.querySelector(`[data-chatbox="${CSS.escape(id)}"]`);
+    const log = document.querySelector(`[data-chatlog="${CSS.escape(id)}"]`);
+    if (!box || !log || !(CHATS[id] || []).length) continue;
+    box.classList.add("on");
+    paintChatModel(id);
+    log.innerHTML = CHATS[id].map(turnHTML).join("");
+  }
+
   if (API) { paintFeedback(); } else {
     document.querySelectorAll("[data-vote],[data-chat],[data-fbsend]")
       .forEach(b => { b.disabled = true; });
   }
 }
+
+function renderPager(pages, total) {
+  const nav = document.getElementById("pager");
+  if (total <= PAGE_SIZE) {
+    nav.hidden = true;
+    nav.innerHTML = "";
+    return;
+  }
+  nav.hidden = false;
+  const btns = [];
+  btns.push(`<button type="button" data-page="${PAGE - 1}" ${PAGE <= 1 ? "disabled" : ""}>Previous</button>`);
+  btns.push(`<span class="pages">`);
+  const window = 2;
+  for (let p = 1; p <= pages; p++) {
+    if (p === 1 || p === pages || (p >= PAGE - window && p <= PAGE + window)) {
+      btns.push(`<button type="button" data-page="${p}" ${p === PAGE ? 'aria-current="page"' : ""}>${p}</button>`);
+    } else if (p === PAGE - window - 1 || p === PAGE + window + 1) {
+      btns.push(`<span>…</span>`);
+    }
+  }
+  btns.push(`</span>`);
+  btns.push(`<button type="button" data-page="${PAGE + 1}" ${PAGE >= pages ? "disabled" : ""}>Next</button>`);
+  nav.innerHTML = btns.join("");
+}
+
+document.getElementById("pager").addEventListener("click", e => {
+  const b = e.target.closest("[data-page]");
+  if (!b || b.disabled) return;
+  const p = Number(b.dataset.page);
+  if (!p || p === PAGE) return;
+  PAGE = p;
+  render();
+  document.getElementById("list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 
 // ---------------------------------------------------------------------------
@@ -340,26 +587,196 @@ const keyBar = () => ({
   base:  document.getElementById("k-base").value.trim(),
 });
 
+const DEFAULT_MODEL = "gemma-4-31b-it";
+let MODELS = [DEFAULT_MODEL];
+
+function fillModelSelect(ids, preferred) {
+  const sel = document.getElementById("k-model");
+  const want = preferred || sel.value || DEFAULT_MODEL;
+  const list = ids.length ? ids : [DEFAULT_MODEL];
+  MODELS = list;
+  sel.innerHTML = list.map(id =>
+    `<option value="${esc(id)}">${esc(id)}</option>`).join("");
+  sel.value = list.includes(want) ? want : list[0];
+}
+
+async function refreshModels() {
+  const note = document.getElementById("k-note");
+  const { key, base, model } = keyBar();
+  if (!key) {
+    note.textContent = "Enter a key to load models available to you.";
+    return;
+  }
+  if (!API) {
+    note.textContent = "Server offline; cannot list models.";
+    return;
+  }
+  note.textContent = "Loading models…";
+  try {
+    const r = await fetch("api/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key, base_url: base }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      note.textContent = typeof d.detail === "string" ? d.detail : `failed (${r.status})`;
+      return;
+    }
+    const ids = d.models || [];
+    if (!ids.length) {
+      note.textContent = "Gateway returned no models for this key.";
+      return;
+    }
+    fillModelSelect(ids, model);
+    note.textContent = `${ids.length} model${ids.length === 1 ? "" : "s"} available to your key.`;
+    document.querySelectorAll("[data-chatmodel]").forEach(el => {
+      el.textContent = document.getElementById("k-model").value || "—";
+    });
+    try {
+      sessionStorage.setItem("gs.chat", JSON.stringify({
+        model: document.getElementById("k-model").value, base,
+      }));
+    } catch (e) {}
+  } catch (err) {
+    note.textContent = err.name === "TimeoutError" ? "timed out listing models" : "could not reach the server";
+  }
+}
+
 // sessionStorage, not localStorage: the key should not outlive the tab.
 try {
   const saved = JSON.parse(sessionStorage.getItem("gs.chat") || "{}");
-  if (saved.model) document.getElementById("k-model").value = saved.model;
-  if (saved.base)  document.getElementById("k-base").value  = saved.base;
+  if (saved.base) document.getElementById("k-base").value = saved.base;
+  if (saved.model) fillModelSelect([saved.model], saved.model);
 } catch (e) {}
-["k-model", "k-base"].forEach(id =>
-  document.getElementById(id).addEventListener("change", () => {
-    try {
-      const { model, base } = keyBar();
-      sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
-    } catch (e) {}
-  }));
+
+document.getElementById("k-base").addEventListener("change", () => {
+  try {
+    const { model, base } = keyBar();
+    sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
+  } catch (e) {}
+  refreshModels();
+});
+document.getElementById("k-model").addEventListener("change", () => {
+  try {
+    const { model, base } = keyBar();
+    sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
+  } catch (e) {}
+  document.querySelectorAll("[data-chatmodel]").forEach(el => {
+    el.textContent = keyBar().model || "—";
+  });
+});
+document.getElementById("k-key").addEventListener("input", () => {
+  document.getElementById("k-key").classList.remove("hilite");
+});
+document.getElementById("k-key").addEventListener("change", refreshModels);
+document.getElementById("k-key").addEventListener("blur", () => {
+  if (keyBar().key) refreshModels();
+});
+
+function turnHTML(t) {
+  const role = t.role === "user" ? "user" : "assistant";
+  const label = role === "user" ? "You" : (t.model || keyBar().model || "Model");
+  return `<div class="turn ${role}"><span class="from">${esc(label)}</span>${esc(t.content)}</div>`;
+}
+
+function paintChatModel(id) {
+  const el = document.querySelector(`[data-chatmodel="${CSS.escape(id)}"]`);
+  if (el) el.textContent = keyBar().model || "—";
+}
+
+function openConfig(opts = {}) {
+  const pop = document.getElementById("cfgpop");
+  const btn = document.getElementById("cfgbtn");
+  const who = document.getElementById("whoami");
+  if (who) who.hidden = false;
+  pop.classList.add("on");
+  btn.setAttribute("aria-expanded", "true");
+  const note = document.getElementById("k-note");
+  const key = document.getElementById("k-key");
+  key.classList.remove("hilite");
+  if (opts.prompt) {
+    note.textContent = "Chat needs your Lumen project key (sk_...). It stays in this tab only.";
+  }
+  if (opts.focusKey) {
+    key.classList.add("hilite");
+    // Defer focus so it isn't stolen by the click that opened this panel.
+    setTimeout(() => { key.focus(); key.select?.(); }, 0);
+  }
+  if (keyBar().key) refreshModels();
+}
+
+function closeConfig() {
+  const pop = document.getElementById("cfgpop");
+  const btn = document.getElementById("cfgbtn");
+  pop.classList.remove("on");
+  btn.setAttribute("aria-expanded", "false");
+  document.getElementById("k-key").classList.remove("hilite");
+}
+
+document.getElementById("cfgbtn").addEventListener("click", e => {
+  e.stopPropagation();
+  const open = document.getElementById("cfgpop").classList.contains("on");
+  if (open) closeConfig(); else openConfig();
+});
+document.addEventListener("click", e => {
+  const wrap = document.getElementById("whoami");
+  if (!wrap || wrap.hidden) return;
+  if (!wrap.contains(e.target)) closeConfig();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    closeConfig();
+    closeRoster();
+  }
+});
+
+function openRoster() {
+  closeConfig();
+  const m = document.getElementById("roster-modal");
+  m.hidden = false;
+  m.classList.add("on");
+  document.getElementById("r-domain").focus();
+  loadRoster();
+}
+function closeRoster() {
+  const m = document.getElementById("roster-modal");
+  m.classList.remove("on");
+  m.hidden = true;
+}
+document.getElementById("open-roster").addEventListener("click", openRoster);
+document.getElementById("roster-close").addEventListener("click", closeRoster);
+document.getElementById("roster-modal").addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeRoster();
+});
+
+let AUTH = { mode: "off", enforced: false, authenticated: false, username: null };
 
 async function probeAPI() {
   try {
     const r = await fetch("api/health");
     API = r.ok;
   } catch (e) { API = false; }
-  document.getElementById("keybar").hidden = !API;
+
+  if (API) {
+    try {
+      AUTH = await (await fetch("api/whoami")).json();
+    } catch (e) {}
+    const who = document.getElementById("who");
+    if (AUTH.enforced) {
+      who.textContent = AUTH.authenticated
+        ? `signed in as ${AUTH.username}`
+        : `not signed in${AUTH.error ? ": " + AUTH.error : ""}`;
+    } else {
+      who.textContent = "";
+    }
+    // Writes will be refused without an identity once the gate is on, so do
+    // not offer controls that are certain to fail.
+    if (AUTH.enforced && !AUTH.authenticated) API = false;
+    loadRoster();
+  }
+  document.getElementById("whoami").hidden = !API;
   document.querySelectorAll("[data-vote],[data-chat],[data-fbsend]")
     .forEach(b => { b.disabled = !API; });
   if (!API) {
@@ -393,6 +810,61 @@ function paintFeedback() {
   });
 }
 
+async function loadRoster() {
+  try {
+    const r = await fetch("api/roster");
+    if (!r.ok) return;
+    const { entries } = await r.json();
+    const el = document.getElementById("rlist");
+    el.innerHTML = entries.length
+      ? `<b>${entries.length} added here</b>` + entries.map(e =>
+          `<div>${esc(e.domain)}: ${esc(e.collaborator)} (${esc(e.status)})` +
+          `${e.created_by && e.created_by !== "anonymous" ? " by " + esc(e.created_by) : ""}` +
+          ` <button class="vote" data-retire="${e.id}">retire</button></div>`).join("")
+      : "<i>none yet; the YAML baseline is used on its own</i>";
+  } catch (e) {}
+}
+
+document.getElementById("rform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const hint = document.getElementById("r-hint");
+  const body = {
+    domain: document.getElementById("r-domain").value,
+    collaborator: document.getElementById("r-collab").value,
+    project: document.getElementById("r-project").value,
+    years: document.getElementById("r-years").value,
+    our_role: document.getElementById("r-role").value,
+    funders: document.getElementById("r-funders").value,
+    status: document.getElementById("r-status").value,
+    notes: document.getElementById("r-notes").value,
+  };
+  hint.textContent = "adding...";
+  try {
+    const r = await fetch("api/roster", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(45000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { hint.textContent = d.detail || `failed (${r.status})`; return; }
+    hint.textContent = d.note || "added";
+    ["r-domain","r-collab","r-project","r-years","r-role","r-funders","r-notes"]
+      .forEach(i => { document.getElementById(i).value = ""; });
+    loadRoster();
+  } catch (err) {
+    hint.textContent = err.name === "TimeoutError" ? "timed out" : "could not reach the server";
+  }
+});
+
+document.getElementById("rlist").addEventListener("click", async e => {
+  const b = e.target.closest("[data-retire]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await fetch(`api/roster/${b.dataset.retire}/retire`, { method: "POST" });
+    loadRoster();
+  } catch (err) { b.disabled = false; }
+});
+
 // Thumbs reveal the comment box; the vote is only sent on Send, so one click
 // cannot post an empty judgement by accident.
 document.getElementById("list").addEventListener("click", e => {
@@ -413,15 +885,33 @@ document.getElementById("list").addEventListener("click", e => {
 
   const chat = e.target.closest("[data-chat]");
   if (chat) {
-    const box = document.querySelector(`[data-chatbox="${CSS.escape(chat.dataset.chat)}"]`);
+    if (!keyBar().key) {
+      e.stopPropagation();
+      openConfig({ focusKey: true, prompt: true });
+      return;
+    }
+    const id = chat.dataset.chat;
+    const box = document.querySelector(`[data-chatbox="${CSS.escape(id)}"]`);
     box.classList.toggle("on");
-    if (box.classList.contains("on")) box.querySelector("input").focus();
+    if (box.classList.contains("on")) {
+      paintChatModel(id);
+      const pv = box.querySelector(".privacy");
+      if (pv && AUTH.enforced && AUTH.authenticated) {
+        pv.textContent = "Not stored. This conversation lives only in this browser"
+          + " tab, goes to your own API key through a proxy that keeps nothing,"
+          + " and is gone when you reload. Your sign-in is known to the proxy in"
+          + " front of this app, so it is private rather than anonymous."
+          + " Copy or export it to keep it.";
+      }
+      box.querySelector("input").focus();
+    }
   }
 });
 
 async function sendFeedback(id) {
   const box  = document.querySelector(`[data-fbbox="${CSS.escape(id)}"]`);
   const note = box.querySelector("input").value.trim();
+  const aspect = box.querySelector("[data-fbaspect]").value;
   const verdict = box.dataset.verdict;
   const label = document.querySelector(`[data-fb="${CSS.escape(id)}"]`);
   if (!verdict) return;
@@ -431,7 +921,7 @@ async function sendFeedback(id) {
     // but never leave the button saying "sending..." forever.
     const r = await fetch("api/feedback", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ opportunity_id: id, verdict, note }),
+      body: JSON.stringify({ opportunity_id: id, verdict, aspect, note }),
       signal: AbortSignal.timeout(45000),
     });
     const d = await r.json().catch(() => ({}));
@@ -440,7 +930,13 @@ async function sendFeedback(id) {
     if (verdict === "up") f.up++; else f.down++;
     f.note = note;
     FB[id] = f;
-    label.textContent = `recorded "${verdict}". It joins the next prompt as a calibration example.`;
+    // Say what actually happens, on all three timescales. The old message
+    // claimed a calibration example even when the rule discarded the click.
+    label.textContent = verdict === "down"
+      ? "Recorded. Excluded from digests now; re-scored in tonight's run; "
+        + "and it will inform how similar calls are scored."
+      : "Recorded as confirmation. Re-scored in tonight's run, and kept as an "
+        + "anchor for future scoring.";
     box.classList.remove("on");
     box.querySelector("input").value = "";
   } catch (err) {
@@ -449,6 +945,57 @@ async function sendFeedback(id) {
       : "could not reach the server";
   }
 }
+
+// The transcript is deliberately not persisted anywhere, so these three are
+// the only way to keep one. Built from the in-memory turns, not from the DOM.
+function transcript(id) {
+  const row = [...document.querySelectorAll(".row")]
+    .find(r => r.querySelector(`[data-chatlog="${CSS.escape(id)}"]`));
+  const title = row ? row.querySelector(".title").textContent.trim() : id;
+  const head = [`# ${title}`, "", `Opportunity: ${id}`,
+                `Exported: ${new Date().toISOString()}`,
+                "", "Not stored server side. Exported from the browser tab.", "", "---", ""];
+  const body = (CHATS[id] || []).map(t =>
+    `**${t.role === "user" ? "You" : "Model"}**\n\n${t.content}\n`);
+  return head.concat(body).join("\n");
+}
+
+document.getElementById("list").addEventListener("click", async e => {
+  const copy = e.target.closest("[data-copy]");
+  const exp  = e.target.closest("[data-export]");
+  const clr  = e.target.closest("[data-clear]");
+  if (!copy && !exp && !clr) return;
+  const id = (copy || exp || clr).dataset.copy
+          || (exp || clr).dataset.export || clr.dataset.clear;
+  const hint = document.querySelector(`[data-chathint="${CSS.escape(id)}"]`);
+
+  if (clr) {
+    delete CHATS[id];
+    document.querySelector(`[data-chatlog="${CSS.escape(id)}"]`).innerHTML = "";
+    hint.textContent = "cleared from this tab";
+    return;
+  }
+  if (!(CHATS[id] || []).length) { hint.textContent = "nothing to save yet"; return; }
+
+  if (copy) {
+    try {
+      await navigator.clipboard.writeText(transcript(id));
+      hint.textContent = "copied to clipboard";
+    } catch (err) {
+      // Clipboard needs a secure context, so plain http on a LAN address fails.
+      hint.textContent = "clipboard blocked here; use Export .md";
+    }
+    return;
+  }
+
+  const blob = new Blob([transcript(id)], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `grant-sift-${id.replace(/[^A-Za-z0-9]+/g, "-")}.md`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  hint.textContent = "exported";
+});
 
 document.getElementById("list").addEventListener("submit", async e => {
   const form = e.target.closest("[data-chatform]");
@@ -461,12 +1008,18 @@ document.getElementById("list").addEventListener("submit", async e => {
 
   const { key, model, base } = keyBar();
   const hint = document.querySelector(`[data-chathint="${CSS.escape(id)}"]`);
-  if (!key) { hint.textContent = "Enter your API key in the bar at the top first."; return; }
+  if (!key) {
+    hint.textContent = "Add your API key in Personalize first.";
+    e.stopPropagation();
+    openConfig({ focusKey: true, prompt: true });
+    return;
+  }
 
+  paintChatModel(id);
   const log = document.querySelector(`[data-chatlog="${CSS.escape(id)}"]`);
   CHATS[id] = CHATS[id] || [];
   CHATS[id].push({ role: "user", content: q });
-  log.insertAdjacentHTML("beforeend", `<div class="turn"><b>You</b><br>${esc(q)}</div>`);
+  log.insertAdjacentHTML("beforeend", turnHTML({ role: "user", content: q }));
   input.value = "";
   hint.textContent = "thinking...";
   log.scrollTop = log.scrollHeight;
@@ -481,12 +1034,12 @@ document.getElementById("list").addEventListener("submit", async e => {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { hint.textContent = d.detail || `failed (${r.status})`; return; }
-    CHATS[id].push({ role: "assistant", content: d.content });
-    log.insertAdjacentHTML("beforeend", `<div class="turn"><b>Model</b><br>${esc(d.content)}</div>`);
+    CHATS[id].push({ role: "assistant", content: d.content, model });
+    log.insertAdjacentHTML("beforeend", turnHTML({ role: "assistant", content: d.content, model }));
     const u = d.usage || {};
     hint.textContent = u.prompt_tokens
-      ? `${u.prompt_tokens} in / ${u.completion_tokens} out tokens, billed to your key`
-      : "";
+      ? `${u.prompt_tokens} in / ${u.completion_tokens} out tokens · ${model}`
+      : model;
     log.scrollTop = log.scrollHeight;
   } catch (err) {
     hint.textContent = "could not reach the server";
@@ -530,13 +1083,13 @@ function boot(payload) {
 }
 
 document.getElementById("q").addEventListener("input", e => {
-  QUERY = e.target.value.trim().toLowerCase(); render();
+  QUERY = e.target.value.trim().toLowerCase(); PAGE = 1; render();
 });
 document.getElementById("sort").addEventListener("change", e => {
-  SORT = e.target.value; render();
+  SORT = e.target.value; PAGE = 1; render();
 });
 document.getElementById("area").addEventListener("change", e => {
-  AREA = e.target.value; render();
+  AREA = e.target.value; PAGE = 1; render();
 });
 // Clicking an area tag on a row filters to it, and keeps the picker in sync.
 document.getElementById("list").addEventListener("click", e => {
@@ -544,6 +1097,7 @@ document.getElementById("list").addEventListener("click", e => {
   if (!tag) return;
   AREA = AREA === tag.dataset.area ? "" : tag.dataset.area;
   document.getElementById("area").value = AREA;
+  PAGE = 1;
   render();
 });
 document.querySelectorAll(".chip").forEach(btn => {
@@ -551,6 +1105,7 @@ document.querySelectorAll(".chip").forEach(btn => {
     const f = btn.dataset.filter;
     ACTIVE.has(f) ? ACTIVE.delete(f) : ACTIVE.add(f);
     btn.setAttribute("aria-pressed", ACTIVE.has(f));
+    PAGE = 1;
     render();
   });
 });

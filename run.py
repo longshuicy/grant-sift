@@ -46,6 +46,16 @@ def cmd_ingest(conn, args):
 
 def cmd_assess(conn, args):
     _, roster, _ = pipeline.load_config(args.config)
+    if getattr(args, "rematch", False):
+        # A roster entry added today cannot retroactively match a record that
+        # was scored before it existed. Only records that matched nobody could
+        # gain a match, so clearing those is far cheaper than re-scoring
+        # everything and captures nearly all of the benefit.
+        n = conn.execute(
+            "DELETE FROM assessments WHERE match_name IS NULL").rowcount
+        conn.commit()
+        print(f"cleared {n} assessment(s) that matched no collaborator, "
+              "so they can be matched against the current roster")
     print("Assessing:")
     n = pipeline.assess_new(conn, roster, limit=args.limit)
     print(f"{n} assessed")
@@ -116,8 +126,14 @@ def cmd_serve(conn, args):
     if args.host not in ("127.0.0.1", "localhost"):
         print("  NOTE: not bound to localhost. There is no auth, and the roster "
               "names real people.")
+    # Access logs record address, method and path, never a body. Off by
+    # request for a deployment that wants no per-request trace at all.
+    access_log = os.environ.get("GRANT_SIFT_ACCESS_LOG", "on").lower() not in (
+        "0", "off", "false", "no")
+    if not access_log:
+        print("  access log off: no per-request lines will be written")
     uvicorn.run("grant_sift.server:app", host=args.host, port=args.port,
-                log_level="info")
+                log_level="info", access_log=access_log)
 
 
 def cmd_status(conn, args):
@@ -150,14 +166,22 @@ def main():
     p.add_argument("--db", default=DB_PATH)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    for name in ("ingest", "daily", "status"):
+    for name in ("ingest", "status"):
         sub.add_parser(name)
+
+    dy = sub.add_parser("daily")
+    dy.add_argument("--limit", type=int, default=400,
+                    help="records to assess in this run (default 400)")
 
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8080)
 
-    a = sub.add_parser("assess"); a.add_argument("--limit", type=int, default=200)
+    a = sub.add_parser("assess")
+    a.add_argument("--limit", type=int, default=200)
+    a.add_argument("--rematch", action="store_true",
+                   help="first clear assessments that matched no collaborator, "
+                        "so a newly added roster entry can match them")
 
     e = sub.add_parser("export")
     e.add_argument("--out", default="web/opportunities.json")
@@ -176,7 +200,8 @@ def main():
     args = p.parse_args()
     for attr, default in (("limit", 200), ("out", "web/opportunities.json"),
                           ("min_score", 0), ("feed", None), ("since", 7),
-                          ("send", False), ("host", "127.0.0.1"), ("port", 8080)):
+                          ("send", False), ("host", "127.0.0.1"), ("port", 8080),
+                          ("rematch", False)):
         if not hasattr(args, attr):
             setattr(args, attr, default)
 

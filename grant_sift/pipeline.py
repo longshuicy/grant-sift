@@ -19,8 +19,16 @@ def load_config(config_dir="config"):
     d = Path(config_dir)
     with open(d / "sources.yaml") as f:
         sources = yaml.safe_load(f)
-    with open(d / "roster.yaml") as f:
-        roster = yaml.safe_load(f)
+    roster_path = Path(os.environ.get("GRANT_SIFT_ROSTER") or (d / "roster.yaml"))
+    if not roster_path.is_file():
+        raise FileNotFoundError(
+            f"missing roster at {roster_path}. "
+            "Copy config/roster.example.yaml to config/roster.yaml "
+            "(gitignored) and fill in your collaborations, or set "
+            "GRANT_SIFT_ROSTER to the path of your roster file."
+        )
+    with open(roster_path) as f:
+        roster = yaml.safe_load(f) or []
     with open(d / "prefilter.yaml") as f:
         prefilter = yaml.safe_load(f)
     return sources, roster, prefilter
@@ -273,7 +281,14 @@ def assess_new(conn, roster, limit=200, verbose=True):
     pending = db.unassessed(conn, limit)
     if not pending:
         return 0
-    block = roster_block(roster)
+    # config/roster.yaml is the baseline; dashboard additions live in the
+    # database. Merged here so the model sees one roster, never merged back
+    # into the YAML.
+    additions = db.roster_additions(conn)
+    block = roster_block(list(roster) + additions)
+    if verbose and additions:
+        print(f"  roster: {len(roster)} from config plus "
+              f"{len(additions)} added via the dashboard", flush=True)
     corrections = llm.format_corrections(db.few_shot_corrections(conn))
 
     done = 0
@@ -328,12 +343,17 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
         (min_score,),
     ).fetchall()
 
+    # Shipped with the data so a recorded verdict shows up on the dashboard at
+    # once, without waiting for the record to be re-scored.
+    verdicts = db.human_verdicts(conn)
     payload = {
         "generated_at": db.now(),
         "count": len(rows),
         "stale_sources": [dict(r) for r in db.stale_sources(conn)],
         "opportunities": [
-            {k: r[k] for k in r.keys()} | {"synopsis": (r["synopsis"] or "")[:900]}
+            {k: r[k] for k in r.keys()}
+            | {"synopsis": (r["synopsis"] or "")[:900]}
+            | {"human": verdicts.get(r["id"])}
             for r in rows
         ],
     }
@@ -346,6 +366,18 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
 # --------------------------------------------------------------------------
 # Digest, curated feeds, not per-user queries
 # --------------------------------------------------------------------------
+
+def _suppressed(r, verdicts):
+    """True when a person has said this call is not for us.
+
+    Applied without re-scoring. The reviewer is more authoritative than a
+    model score, so the call drops out of the digests the moment the verdict is
+    recorded rather than waiting for the next pass. The record itself is kept
+    and still re-scored later, which is where the correction generalises.
+    """
+    v = verdicts.get(r["id"] if "id" in r.keys() else "")
+    return bool(v and v["verdict"] == "down")
+
 
 def _score(r):
     """Rows assessed before the NULL-score fix, or by a model that returned no
@@ -384,9 +416,12 @@ def build_digest(conn, feed, since_days=7, respect_sent_log=True):
     ).fetchall()
 
     test = FEEDS[feed]
+    verdicts = db.human_verdicts(conn)
     items = []
     for r in rows:
         if not test(r):
+            continue
+        if _suppressed(r, verdicts):
             continue
         if respect_sent_log and conn.execute(
             "SELECT 1 FROM sent_log WHERE feed=? AND opportunity_id=?", (feed, r["id"])

@@ -253,11 +253,40 @@ def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
 
 
 def format_corrections(rows) -> str:
+    """Render calibration examples.
+
+    Says which part of the answer was wrong when the reviewer specified it:
+    a thumbs-down can mean the score, the category or the named collaborator,
+    and a bare direction leaves the model guessing which.
+
+    A reviewer's free text is quoted and flattened to one line. It reaches the
+    prompt verbatim otherwise, which is an injection surface once anyone
+    outside the group can click.
+    """
     if not rows:
         return ""
     lines = []
     for r in rows:
-        direction = "should score HIGHER" if r["verdict"] == "up" else "should score LOWER"
-        note = f" ({r['note']})" if r["note"] else ""
-        lines.append(f"- \"{r['title']}\" scored {r['score']}, {direction}{note}")
+        score = r["score"]
+        verdict = r["verdict"]
+        aspect = (r["aspect"] or "").strip().lower()
+        agreed = (verdict == "down" and score < 50) or (verdict == "up" and score >= 70)
+
+        if agreed:
+            head = f'CONFIRMED: "{r["title"]}" scored {score}, and that was right'
+        elif aspect == "category":
+            head = (f'"{r["title"]}" scored {score} as {r["category"]}, '
+                    f"the CATEGORY is wrong")
+        elif aspect == "match":
+            head = (f'"{r["title"]}" was matched to {r["match_name"]}, '
+                    f"the WRONG collaborator")
+        else:
+            direction = "should score HIGHER" if verdict == "up" else "should score LOWER"
+            head = f'"{r["title"]}" scored {score}, {direction}'
+
+        note = (r["note"] or "").strip()
+        if note:
+            note = " ".join(note.split())[:200].replace('"', "'")
+            head += f' (reviewer: "{note}")'
+        lines.append("- " + head)
     return "\n".join(lines)

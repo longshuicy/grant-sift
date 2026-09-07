@@ -1,0 +1,177 @@
+# Default values for grant-sift.
+# Secrets: never put real keys here. Use --set-file / External Secrets / sealed-secrets,
+# or a local values-secrets.yaml that is gitignored (see values-secrets.example.yaml).
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/longshuicy/grant-sift
+  tag: ""          # defaults to Chart.appVersion; overlays set main / semver
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+# Keep stable so oauth2-proxy can upstream to http://grant-sift:8080
+fullnameOverride: "grant-sift"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 1000
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  # Prefer routing users to oauth2-proxy (when enabled) rather than the app
+  # directly. Set oauth2-proxy.ingress.enabled instead in that case.
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: grant-sift.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# Persistence (SQLite). One volume shared by the web Deployment and the CronJob.
+# Prefer ReadWriteMany (NFS/EFS/CephFS). ReadWriteOnce only works if both pods
+# land on the same node, or if you pause the Deployment while the CronJob runs.
+# ---------------------------------------------------------------------------
+persistence:
+  enabled: true
+  storageClassName: ""       # empty = cluster default
+  accessModes:
+    - ReadWriteMany
+  size: 5Gi
+  existingClaim: ""          # set to reuse a claim; skips creating one
+
+# Non-secret env (ConfigMap).
+config:
+  GRANT_SIFT_DB: /data/grant-sift.db
+  GRANT_SIFT_LLM_BASE_URL: https://lumen.ncsa.illinois.edu/v1
+  GRANT_SIFT_LLM_MODEL: gemma-4-31b-it
+  GRANT_SIFT_LLM_THINKING: "off"
+  GRANT_SIFT_LLM_MAX_TOKENS: "4000"
+  GRANT_SIFT_LLM_TIMEOUT: "120"
+  GRANT_SIFT_AUTH: proxy                 # off | proxy
+  # Peer addresses Grant Sift will accept identity headers from. With the
+  # bundled oauth2-proxy this is typically the cluster pod CIDR, or 127.0.0.1
+  # if you later switch to a sidecar. Comma-separated IPs or CIDRs.
+  GRANT_SIFT_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12"
+  # oauth2-proxy pass_user_headers: prefer X-Forwarded-User as the username.
+  GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-user
+  GRANT_SIFT_AUTH_EMAIL_HEADER: x-forwarded-email
+  GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-user
+  GRANT_SIFT_AUTH_GROUPS_HEADER: x-forwarded-groups
+  GRANT_SIFT_AUTH_REQUIRED_GROUP: ""
+  GRANT_SIFT_CHAT_ALLOWED_HOSTS: "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai"
+  GRANT_SIFT_ACCESS_LOG: "on"
+  GRANT_SIFT_DAILY_LIMIT: "400"
+  GRANT_SIFT_SMTP_HOST: ""
+  GRANT_SIFT_FROM: grant-sift@example.com
+
+# Collaborator roster (deployment config, not in the image / not in git).
+# Create once from your local (gitignored) file:
+#   kubectl -n grant-sift create configmap grant-sift-roster \
+#     --from-file=roster.yaml=config/roster.yaml
+roster:
+  existingConfigMap: ""
+  key: roster.yaml
+  mountPath: /app/config/roster.yaml
+
+# Secret env. Leave empty in git; supply via --set, --set-file, or values-secrets.yaml.
+secrets:
+  # Required for the CronJob assess step.
+  GRANT_SIFT_LLM_API_KEY: ""
+  # Optional: create the Secret from an existing one instead of chart-managed.
+  existingSecret: ""
+  # Key name inside existingSecret that holds the LLM API key.
+  existingSecretKey: GRANT_SIFT_LLM_API_KEY
+
+# Nightly pipeline (same work as scripts/daily.sh).
+cronjob:
+  enabled: true
+  schedule: "0 6 * * *"          # 06:00 UTC
+  timeZone: ""                   # e.g. America/Chicago if apiserver supports it
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+# ---------------------------------------------------------------------------
+# oauth2-proxy subchart (official). Points at Keycloak; Grant Sift stays header-only.
+# Docs: https://oauth2-proxy.github.io/oauth2-proxy/configuration/providers/openid_connect
+# Chart: https://github.com/oauth2-proxy/manifests
+# ---------------------------------------------------------------------------
+oauth2-proxy:
+  enabled: true
+  # Upstream must match fullnameOverride (default: grant-sift Service).
+  config:
+    existingSecret: ""           # Secret keys: client-id, client-secret, cookie-secret
+    configFile: |-
+      provider = "keycloak-oidc"
+      email_domains = [ "*" ]
+      upstreams = [ "http://grant-sift:8080/" ]
+      skip_provider_button = true
+      set_xauthrequest = true
+      pass_access_token = false
+      pass_authorization_header = false
+      pass_user_headers = true
+      set_authorization_header = false
+      oidc_email_claim = "email"
+      oidc_groups_claim = "groups"
+      user_id_claim = "preferred_username"
+  # Set issuer URL for your realm. Client id/secret come from existingSecret.
+  extraArgs:
+    - --provider=keycloak-oidc
+    # - --oidc-issuer-url=https://keycloak.example.com/realms/your-realm
+    - --reverse-proxy=true
+    - --pass-user-headers=true
+    - --set-xauthrequest=true
+    - --code-challenge-method=S256
+  service:
+    portNumber: 4180
+  ingress:
+    enabled: true
+    hosts:
+      - grant-sift.example.com
+    tls: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi

@@ -1,0 +1,42 @@
+# Past and current collaborations. This file decides whether Grant Sift is
+# useful.
+#
+# NOT committed with real data. Copy this file to config/roster.yaml (gitignored)
+# and fill in your group's collaborations:
+#
+#   cp config/roster.example.yaml config/roster.yaml
+#
+# This file is the BASELINE, curated and reviewed on disk / in the cluster.
+# Entries added through the web UI live in the roster_entries table instead and
+# are never written back here.
+#
+# status: warm | cold | do-not-contact
+#   warm            we would call them tomorrow
+#   cold            real past work, but the relationship has gone quiet
+#   do-not-contact  do not surface, for whatever reason
+#
+# `collaborator` is the DOMAIN partner, the person who needs an RSE and may
+# not know it. Our own staff belong in `notes` as the internal contact, not
+# here, or the matcher will match us to ourselves.
+#
+# Only these fields reach the model: domain, collaborator, project, years,
+# our_role, funders, status, notes. Any other key is silently ignored.
+
+# Replace these placeholders with your real roster before running assess.
+
+- domain: example domain
+  collaborator: A. Researcher (PI, Example Dept)
+  project: Example collaboration title
+  years: 2022-present
+  our_role: software, data management, workflow support
+  funders: [NSF]
+  status: warm
+  notes: internal contact Your Name; replace this entry
+
+- domain: another domain
+  collaborator: B. Collaborator (co-PI, Example University)
+  project: Past project that went quiet
+  years: 2018-2021
+  our_role: web app, data publishing
+  funders: [NIH]
+  status: cold

@@ -14,10 +14,22 @@ server down. Only two features need a server at all:
 
 The viewer's API key is never stored, never logged, and never written to disk.
 It arrives per request, is forwarded, and is dropped.
+
+Chat is not recorded. There is no chat table, no INSERT on the chat path, and
+the transcript exists only in the browser tab that made it. What the process
+does hold, and it would be dishonest to call this nothing:
+
+  - uvicorn's access log lines, which record client address, method and path.
+    Never a request body, so never a message or a key. Silence them with
+    GRANT_SIFT_ACCESS_LOG=off.
+  - the rate limiter's in-memory counters, keyed by a salted hash of the
+    client address rather than the address itself, and lost on restart.
 """
 
+import hashlib
 import os
 import re
+import secrets
 import time
 from collections import defaultdict, deque
 from pathlib import Path
@@ -28,7 +40,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import auth, db
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -51,6 +63,8 @@ ALLOWED_HOSTS = {
 # viewer pays for it with their own key, and the limit only protects the proxy.
 FEEDBACK_PER_HOUR = int(os.environ.get("GRANT_SIFT_FEEDBACK_PER_HOUR", "20"))
 CHAT_PER_HOUR = int(os.environ.get("GRANT_SIFT_CHAT_PER_HOUR", "60"))
+# Tighter than feedback: a roster row is trusted context in every later prompt.
+ROSTER_PER_HOUR = int(os.environ.get("GRANT_SIFT_ROSTER_PER_HOUR", "10"))
 CHAT_TIMEOUT = int(os.environ.get("GRANT_SIFT_CHAT_TIMEOUT", "120"))
 
 MAX_NOTE = 500
@@ -79,8 +93,15 @@ def _rate_limit(key: str, limit: int, window: int = 3600):
     q.append(now)
 
 
+# Per-process, never persisted, so the counters cannot be reversed into a list
+# of who used the app even by someone reading process memory later.
+_SALT = secrets.token_bytes(16)
+
+
 def _client(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """A stable per-process pseudonym for the caller, not their address."""
+    host = request.client.host if request.client else "unknown"
+    return hashlib.blake2b(_SALT + host.encode(), digest_size=8).hexdigest()
 
 
 def _conn():
@@ -93,9 +114,108 @@ def health():
         conn = _conn()
         n = conn.execute("SELECT COUNT(*) n FROM opportunities").fetchone()["n"]
         conn.close()
-        return {"ok": True, "opportunities": n}
+        return {"ok": True, "opportunities": n, "auth": auth.status()}
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
+@app.get("/api/whoami")
+def whoami(request: Request):
+    """Who the proxy says you are, plus whether the gate is actually on.
+
+    The page uses this to show a signed-in name and to hide write controls it
+    knows will be refused, rather than letting a click fail.
+    """
+    st = auth.status()
+    try:
+        p = auth.principal(request)
+        st |= {"username": p.label, "display": p.display or p.label,
+               "groups": p.groups, "authenticated": p.authenticated}
+    except HTTPException as exc:
+        st |= {"username": None, "authenticated": False, "error": exc.detail}
+    return st
+
+
+@app.get("/api/roster")
+def roster_list():
+    """Dashboard-added entries only. The YAML baseline is not exposed here:
+    it is a curated file, and the merge happens at assessment time."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            """SELECT id, domain, collaborator, project, years, our_role,
+                      funders, status, notes, created_by, created_at
+               FROM roster_entries WHERE retired = 0 ORDER BY created_at DESC"""
+        ).fetchall()
+        return {"entries": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.post("/api/roster")
+def roster_add(request: Request, payload: dict = Body(...)):
+    """Add a collaboration through the dashboard.
+
+    Never written back to config/roster.yaml. That file is the reviewed
+    baseline; these rows are merged with it when the classifier runs.
+
+    Note what this text becomes: the roster is TRUSTED CONTEXT in every future
+    classification prompt, far more so than a feedback note, so a careless
+    entry steers every subsequent score. Hence the required fields, the length
+    caps, the rate limit, and the default status of cold.
+    """
+    principal = auth.require_user(request)
+    _rate_limit(f"roster:{_client(request)}", ROSTER_PER_HOUR)
+
+    def field(name, limit=300, required=False):
+        v = " ".join(str(payload.get(name) or "").split())[:limit]
+        if required and not v:
+            raise HTTPException(400, f"{name} is required")
+        return v
+
+    status = (payload.get("status") or "cold").strip().lower()
+    if status not in ("warm", "cold", "do-not-contact"):
+        raise HTTPException(400, "status must be warm, cold or do-not-contact")
+
+    entry = {
+        "domain": field("domain", 120, required=True),
+        "collaborator": field("collaborator", 200, required=True),
+        "project": field("project", 300),
+        "years": field("years", 40),
+        "our_role": field("our_role", 300),
+        "funders": field("funders", 200),
+        "notes": field("notes", 500),
+        # Nobody has verified a status typed into a form, so an unreviewed
+        # entry cannot put a person straight into the warm digest.
+        "status": status,
+    }
+    conn = _conn()
+    try:
+        new_id = db.add_roster_entry(conn, entry, created_by=principal.label)
+        total = conn.execute(
+            "SELECT COUNT(*) n FROM roster_entries WHERE retired = 0").fetchone()["n"]
+    finally:
+        conn.close()
+    return {"ok": True, "id": new_id, "entries": total,
+            "note": "merged into the roster on the next assess run; "
+                    "run assess --rematch to match it against already scored calls"}
+
+
+@app.post("/api/roster/{entry_id}/retire")
+def roster_retire(request: Request, entry_id: int):
+    """Hide an entry from the merge without deleting the record of it."""
+    auth.require_user(request)
+    _rate_limit(f"roster:{_client(request)}", ROSTER_PER_HOUR)
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "UPDATE roster_entries SET retired = 1 WHERE id = ?", (entry_id,))
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(404, "no such entry")
+        return {"ok": True, "id": entry_id}
+    finally:
+        conn.close()
 
 
 @app.get("/api/feedback")
@@ -158,14 +278,21 @@ def get_feedback(opportunity_id: str):
 
 @app.post("/api/feedback")
 def post_feedback(request: Request, payload: dict = Body(...)):
+    principal = auth.require_user(request)
     _rate_limit(f"fb:{_client(request)}", FEEDBACK_PER_HOUR)
 
     opp_id = str(payload.get("opportunity_id") or "").strip()
     verdict = str(payload.get("verdict") or "").strip().lower()
-    note = str(payload.get("note") or "").strip()[:MAX_NOTE]
+    # Which of the three things the model produced was wrong. A bare thumb
+    # conflates the score, the category and the named collaborator, and leaves
+    # the model guessing which one to change.
+    aspect = str(payload.get("aspect") or "score").strip().lower()
+    note = " ".join(str(payload.get("note") or "").split())[:MAX_NOTE]
 
     if verdict not in ("up", "down"):
         raise HTTPException(400, "verdict must be 'up' or 'down'")
+    if aspect not in ("score", "category", "match"):
+        raise HTTPException(400, "aspect must be 'score', 'category' or 'match'")
     if not opp_id:
         raise HTTPException(400, "opportunity_id is required")
 
@@ -179,15 +306,25 @@ def post_feedback(request: Request, payload: dict = Body(...)):
         ).fetchone():
             raise HTTPException(404, "unknown opportunity_id")
         conn.execute(
-            """INSERT INTO feedback (opportunity_id, verdict, note, created_at)
-               VALUES (?,?,?,?)""",
-            (opp_id, verdict, note, db.now()),
+            """INSERT INTO feedback
+                 (opportunity_id, verdict, aspect, note, created_by, created_at)
+               VALUES (?,?,?,?,?,?)""",
+            (opp_id, verdict, aspect, note, principal.label, db.now()),
         )
+        # Queue for re-scoring rather than calling the model here. Re-scoring
+        # this record with its own correction in the prompt is close to
+        # tautological anyway: the correction's value is on OTHER records, and
+        # that only exists at the next full pass. Meanwhile the verdict itself
+        # already takes effect, so the dashboard and digests respect it now.
+        requeued = bool(conn.execute(
+            "DELETE FROM assessments WHERE opportunity_id = ?", (opp_id,)).rowcount)
         conn.commit()
         n = conn.execute(
             "SELECT COUNT(*) n FROM feedback WHERE opportunity_id = ?", (opp_id,)
         ).fetchone()["n"]
-        return {"ok": True, "opportunity_id": opp_id, "verdict": verdict, "total": n}
+        return {"ok": True, "opportunity_id": opp_id, "verdict": verdict,
+                "aspect": aspect, "total": n, "requeued": requeued,
+                "by": principal.label}
     finally:
         conn.close()
 
@@ -260,6 +397,41 @@ def _opportunity_context(conn, opp_id: str) -> str:
     return "\n".join(lines)
 
 
+@app.post("/api/models")
+def models(request: Request, payload: dict = Body(...)):
+    """List models the viewer's key can reach. Same CORS reason as /api/chat."""
+    auth.require_user(request)
+    _rate_limit(f"models:{_client(request)}", CHAT_PER_HOUR)
+
+    api_key = str(payload.get("api_key") or "").strip()
+    base_url = _check_base_url(
+        str(payload.get("base_url") or "https://lumen.ncsa.illinois.edu/v1").strip()
+    )
+    if not api_key:
+        raise HTTPException(400, "api_key is required")
+
+    try:
+        r = requests.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=min(CHAT_TIMEOUT, 30),
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"gateway unreachable: {type(exc).__name__}")
+
+    if r.status_code != 200:
+        detail = re.sub(r"(sk|gho|xoxb)[_-][A-Za-z0-9_\-]{8,}", "[redacted]", r.text[:300])
+        raise HTTPException(502, f"gateway returned {r.status_code}: {detail}")
+
+    data = r.json()
+    ids = []
+    for m in data.get("data") or []:
+        mid = (m or {}).get("id")
+        if mid:
+            ids.append(str(mid))
+    return {"models": ids}
+
+
 @app.post("/api/chat")
 def chat(request: Request, payload: dict = Body(...)):
     """Forward one chat turn to the viewer's own gateway.
@@ -267,6 +439,7 @@ def chat(request: Request, payload: dict = Body(...)):
     The key is read from the request, forwarded, and dropped. It is never
     persisted or logged, and no error message echoes it back.
     """
+    auth.require_user(request)
     _rate_limit(f"chat:{_client(request)}", CHAT_PER_HOUR)
 
     opp_id = str(payload.get("opportunity_id") or "").strip()
@@ -331,6 +504,9 @@ def chat(request: Request, payload: dict = Body(...)):
         detail = re.sub(r"(sk|gho|xoxb)[_-][A-Za-z0-9_\-]{8,}", "[redacted]", r.text[:300])
         raise HTTPException(502, f"gateway returned {r.status_code}: {detail}")
 
+    # Nothing about this exchange is written anywhere: no table, no file, no
+    # log line carrying content. The transcript lives in the caller's tab and
+    # disappears when it closes, which is why the page offers copy and export.
     data = r.json()
     choice = (data.get("choices") or [{}])[0]
     content = ((choice.get("message") or {}).get("content") or "").strip()

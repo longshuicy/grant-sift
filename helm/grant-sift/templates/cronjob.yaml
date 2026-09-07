@@ -1,0 +1,81 @@
+{{- if .Values.cronjob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "grant-sift.fullname" . }}-daily
+  labels:
+    {{- include "grant-sift.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  {{- if .Values.cronjob.timeZone }}
+  timeZone: {{ .Values.cronjob.timeZone | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
+  startingDeadlineSeconds: {{ .Values.cronjob.startingDeadlineSeconds }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "grant-sift.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: daily
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "grant-sift.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          restartPolicy: OnFailure
+          containers:
+            - name: daily
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              image: {{ include "grant-sift.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              # Same work as scripts/daily.sh: ingest → assess → export → digests.
+              # Export lands on /data/opportunities.json via the entrypoint symlink.
+              args:
+                - /bin/sh
+                - -ec
+                - |
+                  python run.py daily --limit "${GRANT_SIFT_DAILY_LIMIT:-400}"
+                  python run.py status
+              envFrom:
+                - configMapRef:
+                    name: {{ include "grant-sift.fullname" . }}-config
+              env:
+                - name: GRANT_SIFT_LLM_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "grant-sift.secretName" . }}
+                      key: {{ .Values.secrets.existingSecretKey }}
+              resources:
+                {{- toYaml .Values.cronjob.resources | nindent 16 }}
+              {{- $mounts := include "grant-sift.volumeMounts" . | trim }}
+              {{- if $mounts }}
+              volumeMounts:
+                {{- $mounts | nindent 16 }}
+              {{- end }}
+          {{- $vols := include "grant-sift.volumes" . | trim }}
+          {{- if $vols }}
+          volumes:
+            {{- $vols | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
