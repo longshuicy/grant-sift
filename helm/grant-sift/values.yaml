@@ -86,10 +86,11 @@ config:
   # bundled oauth2-proxy this is typically the cluster pod CIDR, or 127.0.0.1
   # if you later switch to a sidecar. Comma-separated IPs or CIDRs.
   GRANT_SIFT_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12"
-  # oauth2-proxy pass_user_headers: prefer X-Forwarded-User as the username.
-  GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-user
+  # oauth2-proxy pass_user_headers: X-Forwarded-User is often the OIDC `sub`
+  # (UUID). Preferred username (e.g. cwang138) is in X-Forwarded-Preferred-Username.
+  GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-preferred-username
   GRANT_SIFT_AUTH_EMAIL_HEADER: x-forwarded-email
-  GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-user
+  GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-preferred-username
   GRANT_SIFT_AUTH_GROUPS_HEADER: x-forwarded-groups
   GRANT_SIFT_AUTH_REQUIRED_GROUP: ""
   GRANT_SIFT_CHAT_ALLOWED_HOSTS: "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai,generativelanguage.googleapis.com,api.fireworks.ai,api.together.xyz,api.deepseek.com,api.mistral.ai,api.anthropic.com,.openai.azure.com"
@@ -166,6 +167,8 @@ oauth2-proxy:
   # come from existingSecret.
   extraArgs:
     - --provider=keycloak-oidc
+    - --user-id-claim=preferred_username
+    - --oidc-email-claim=email
     - --reverse-proxy=true
     - --pass-user-headers=true
     - --set-xauthrequest=true

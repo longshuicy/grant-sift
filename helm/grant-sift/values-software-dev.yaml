@@ -43,9 +43,10 @@ config:
   GRANT_SIFT_AUTH: proxy
   # oauth2-proxy pods talk to the app from the pod network
   GRANT_SIFT_TRUSTED_PROXIES: "10.42.0.0/16"
-  GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-user
+  # Not x-forwarded-user — that is Keycloak's subject UUID with keycloak-oidc.
+  GRANT_SIFT_AUTH_USER_HEADER: x-forwarded-preferred-username
   GRANT_SIFT_AUTH_EMAIL_HEADER: x-forwarded-email
-  GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-user
+  GRANT_SIFT_AUTH_NAME_HEADER: x-forwarded-preferred-username
   GRANT_SIFT_AUTH_GROUPS_HEADER: x-forwarded-groups
   # Optional: require a Keycloak group, e.g. grant-sift-users
   GRANT_SIFT_AUTH_REQUIRED_GROUP: ""
@@ -85,6 +86,8 @@ oauth2-proxy:
       user_id_claim = "preferred_username"
   extraArgs:
     - --provider=keycloak-oidc
+    - --user-id-claim=preferred_username
+    - --oidc-email-claim=email
     - --reverse-proxy=true
     - --pass-user-headers=true
     - --set-xauthrequest=true
