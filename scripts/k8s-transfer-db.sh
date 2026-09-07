@@ -97,6 +97,13 @@ else
   echo "no local opportunities.json; run: python run.py export"
 fi
 
+# kubectl cp preserves the local uid (e.g. macOS 502) and mode 600; the app
+# runs as uid 1000 and cannot open the DB otherwise.
+echo "fixing ownership to uid 1000 (app user)"
+kubectl -n "$NAMESPACE" exec "$JOB_POD" -- chown -R 1000:1000 /data
+kubectl -n "$NAMESPACE" exec "$JOB_POD" -- chmod 664 "$REMOTE_DB" 2>/dev/null || true
+kubectl -n "$NAMESPACE" exec "$JOB_POD" -- chmod 644 "$REMOTE_JSON" 2>/dev/null || true
+
 echo "scaling deployment back to 1"
 kubectl -n "$NAMESPACE" scale deploy/"$RELEASE" --replicas=1
 kubectl -n "$NAMESPACE" rollout status deploy/"$RELEASE" --timeout=180s

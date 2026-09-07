@@ -37,13 +37,32 @@ from urllib.parse import urlparse
 
 import requests
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, db
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+
+def _opportunities_json_path() -> Path | None:
+    """Prefer the PVC next to the DB; fall back to web/ (local / entrypoint symlink).
+
+    CronJob and serve share the same /data volume. Export writes
+    /data/opportunities.json; the dashboard must read that file, not a stale
+    copy baked into the container layer.
+    """
+    for path in (
+        Path(DB_PATH).expanduser().resolve().parent / "opportunities.json",
+        WEB_DIR / "opportunities.json",
+    ):
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return None
 
 # Hosts this proxy will forward to. Without an allowlist the endpoint is an
 # SSRF pivot: a caller could name any internal address as base_url and read the
@@ -549,6 +568,30 @@ def chat(request: Request, payload: dict = Body(...)):
     return {"content": content, "usage": data.get("usage") or {}}
 
 
+@app.get("/opportunities.json")
+def opportunities_json():
+    """Serve the export from the shared data volume (same file the CronJob writes).
+
+    Registered before StaticFiles so a broken or container-local copy under web/
+    cannot hide PVC updates. no-cache so a nightly refresh is visible on reload.
+    """
+    path = _opportunities_json_path()
+    if path is None:
+        raise HTTPException(404, "opportunities.json not found; run: python run.py export")
+    return FileResponse(
+        path,
+        media_type="application/json",
+        headers={"Cache-Control": "no-cache, max-age=0, must-revalidate"},
+    )
+
+
 # Mounted last: it serves "/" so it must not shadow the /api routes above.
+# follow_symlink=True: docker/entrypoint.sh links web/opportunities.json → /data
+# on the PVC; Starlette's default realpath check treats that as escaping WEB_DIR
+# and returns 404 (defense in depth alongside the route above).
 if WEB_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+    app.mount(
+        "/",
+        StaticFiles(directory=str(WEB_DIR), html=True, follow_symlink=True),
+        name="web",
+    )

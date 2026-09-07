@@ -98,6 +98,12 @@ config:
   GRANT_SIFT_SMTP_HOST: ""
   GRANT_SIFT_FROM: grant-sift@example.com
 
+# Keycloak front door (issuer built as {{url}}/realms/{{realm}}).
+# oauth2-proxy reads issuer-url via env from the grant-sift-keycloak ConfigMap.
+keycloak:
+  url: https://keycloak.example.com
+  realm: YOUR_REALM
+
 # Collaborator roster (deployment config, not in the image / not in git).
 # Create once from your local (gitignored) file:
 #   kubectl -n grant-sift create configmap grant-sift-roster \
@@ -156,14 +162,21 @@ oauth2-proxy:
       oidc_email_claim = "email"
       oidc_groups_claim = "groups"
       user_id_claim = "preferred_username"
-  # Set issuer URL for your realm. Client id/secret come from existingSecret.
+  # Set issuer via keycloak.url + keycloak.realm (ConfigMap → env). Client id/secret
+  # come from existingSecret.
   extraArgs:
     - --provider=keycloak-oidc
-    # - --oidc-issuer-url=https://keycloak.example.com/realms/your-realm
     - --reverse-proxy=true
     - --pass-user-headers=true
     - --set-xauthrequest=true
     - --code-challenge-method=S256
+  # fullnameOverride is grant-sift → ConfigMap name grant-sift-keycloak
+  extraEnv:
+    - name: OAUTH2_PROXY_OIDC_ISSUER_URL
+      valueFrom:
+        configMapKeyRef:
+          name: grant-sift-keycloak
+          key: issuer-url
   service:
     portNumber: 4180
   ingress:

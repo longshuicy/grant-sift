@@ -1,102 +1,104 @@
 # Helm chart for Grant Sift
 
-Deploys the dashboard (`run.py serve`), a nightly **CronJob** (`run.py daily`), a **PVC** for SQLite, and optionally the official **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** chart in front of Keycloak.
+Deploys the dashboard (`run.py serve`), a nightly **CronJob** (`run.py daily`), a **PVC** for SQLite, and **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** in front of Keycloak.
 
-Not Argo-managed yet — hand-roll with `helm upgrade --install`. Overlay for the NCSA **software-dev** cluster: `values-software-dev.yaml`.
+Not Argo-managed yet — hand-roll with `helm upgrade --install`. Cluster overlay: `values-software-dev.yaml`.
 
-There is no separate SQLite Helm chart — SQLite is a file on the PVC at `/data/grant-sift.db`.
+SQLite is a file on the PVC (`/data/grant-sift.db`); there is no separate SQLite chart.
 
 ## Layout
 
 | Resource | Purpose |
 |---|---|
-| Deployment + Service | Web UI, feedback, chat proxy |
-| PVC | `grant-sift.db` + `opportunities.json` |
-| Secret | `GRANT_SIFT_LLM_API_KEY` (pipeline only) |
-| ConfigMap | Non-secret `GRANT_SIFT_*` settings |
+| Deployment + Service | Web UI, feedback, chat proxy (ClusterIP only) |
+| oauth2-proxy + Ingress | Traefik → Keycloak login → app |
+| PVC (`nfs-taiga`) | Shared `/data`: `grant-sift.db` + `opportunities.json` (Deployment **and** CronJob) |
+| Secret | `GRANT_SIFT_LLM_API_KEY` (pipeline) + `grant-sift-oauth2` (OIDC client) |
+| ConfigMap | Non-secret env + mounted `roster.yaml` |
 | CronJob | Same work as `scripts/daily.sh` |
-| oauth2-proxy (subchart) | Keycloak login → identity headers |
 
 ## Prerequisites (software-dev)
 
-| Thing | What you have |
+| Thing | Value |
 |---|---|
 | kubectl context | `software-dev` (k3s **1.34**) |
-| Helm | **3.9+** (3.9.4 is fine) |
+| Helm | **3.9+** |
 | Ingress | **traefik** + letsencrypt |
-| RWX storage | **nfs-taiga** |
-| Keycloak | `https://keycloak.software-dev.ncsa.illinois.edu` |
-| Image | `ghcr.io/longshuicy/grant-sift` (GitHub Action on merge to `main` / release) |
+| Storage | **nfs-taiga** (RWX) |
+| DNS | `*.software-dev.ncsa.illinois.edu` |
+| Keycloak | [keycloak.software-dev…](https://keycloak.software-dev.ncsa.illinois.edu/) — set `keycloak.realm` (default **NCSA**) |
+| Image | **public** `ghcr.io/longshuicy/grant-sift:main` |
+
+Traffic path:
+
+```
+Browser → Traefik → oauth2-proxy → Keycloak (NCSA) → grant-sift:8080
+```
 
 ---
 
-## Step-by-step deploy (hand-roll on software-dev)
+## Step-by-step (hand-roll)
 
-### 0. Point at the cluster
+### 0. Context
 
 ```bash
 kubectl config use-context software-dev
-kubectl get nodes
 ```
 
-### 1. Publish an image (or wait for CI)
-
-On merge to `main`, `.github/workflows/docker-publish.yml` pushes:
-
-- `ghcr.io/longshuicy/grant-sift:main`
-- `ghcr.io/longshuicy/grant-sift:sha-<short>`
-
-On a GitHub **Release** (tag `v1.2.3`):
-
-- `:1.2.3`, `:1.2`, `:1`, `:latest`, plus `:sha-…`
-
-After the first push, open the package on GitHub → **Package settings** → visibility **Public** (simplest), or keep it private and create a pull secret in step 3.
-
-Local one-off (optional):
+### 1. Image (public)
 
 ```bash
-docker build -t ghcr.io/longshuicy/grant-sift:main .
-echo "$GHCR_PAT" | docker login ghcr.io -u longshuicy --password-stdin
-docker push ghcr.io/longshuicy/grant-sift:main
+docker pull ghcr.io/longshuicy/grant-sift:main
 ```
 
-### 2. Create a Keycloak client
+CI tags on merge to `main`: `:main`, `:sha-<short>`. Releases add semver + `:latest`. No pull secret needed.
 
-In Keycloak (`keycloak.software-dev.ncsa.illinois.edu`), pick/create a realm, then a confidential client, e.g. `grant-sift`:
+### 2. Keycloak client
 
-- Valid redirect URIs: `https://grant-sift.software-dev.ncsa.illinois.edu/oauth2/callback`
-- Web origins: `https://grant-sift.software-dev.ncsa.illinois.edu`
-- Client authentication: **On**
-- Note the **client id** and **client secret**
+In [Keycloak admin](https://keycloak.software-dev.ncsa.illinois.edu/) → realm matching `keycloak.realm` in `values-software-dev.yaml` (default **NCSA**) → Clients → Create:
 
-Edit `values-software-dev.yaml` and replace `REALM` in:
+| Field | Value |
+|---|---|
+| Client ID | `grant-sift` (or your choice) |
+| Client authentication | **On** (confidential) |
+| Valid redirect URIs | `https://grant-sift.software-dev.ncsa.illinois.edu/oauth2/callback` |
+| Web origins | `https://grant-sift.software-dev.ncsa.illinois.edu` |
+| Standard flow | On |
+
+Copy the **client secret** from the Credentials tab.
+
+Realm is a Helm value (not hard-coded in the issuer URL):
 
 ```yaml
-- --oidc-issuer-url=https://keycloak.software-dev.ncsa.illinois.edu/realms/REALM
+keycloak:
+  url: https://keycloak.software-dev.ncsa.illinois.edu
+  realm: NCSA          # ← change here if needed
 ```
 
-### 3. Namespace + secrets + roster
+The chart builds `{{url}}/realms/{{realm}}` into ConfigMap `grant-sift-keycloak` and injects it as `OAUTH2_PROXY_OIDC_ISSUER_URL`.
+
+### 3. Namespace, secrets, roster
 
 ```bash
 kubectl create namespace grant-sift
 
-# Pipeline LLM key (from your local .env) — chart-managed Secret
+# Pipeline LLM key (gitignored)
 cp helm/grant-sift/values-secrets.example.yaml helm/grant-sift/values-secrets.yaml
-# put the real GRANT_SIFT_LLM_API_KEY in values-secrets.yaml (gitignored)
+# edit: secrets.GRANT_SIFT_LLM_API_KEY: "sk_..."
 
-# Collaborator roster (gitignored local file — not in the image)
-kubectl -n grant-sift create configmap grant-sift-roster \
-  --from-file=roster.yaml=config/roster.yaml
-
-# oauth2-proxy Keycloak credentials
+# oauth2-proxy ↔ Keycloak
 COOKIE_SECRET="$(python3 -c 'import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')"
 kubectl -n grant-sift create secret generic grant-sift-oauth2 \
   --from-literal=client-id='grant-sift' \
   --from-literal=client-secret='PASTE_KEYCLOAK_CLIENT_SECRET' \
   --from-literal=cookie-secret="$COOKIE_SECRET"
+
+# Collaborator roster (gitignored — not in the image)
+kubectl -n grant-sift create configmap grant-sift-roster \
+  --from-file=roster.yaml=config/roster.yaml
 ```
 
-Update the roster later without rebuilding:
+Update roster later:
 
 ```bash
 kubectl -n grant-sift create configmap grant-sift-roster \
@@ -105,18 +107,7 @@ kubectl -n grant-sift create configmap grant-sift-roster \
 kubectl -n grant-sift rollout restart deploy/grant-sift
 ```
 
-Private GHCR only:
-
-```bash
-kubectl -n grant-sift create secret docker-registry ghcr-pull \
-  --docker-server=ghcr.io \
-  --docker-username=longshuicy \
-  --docker-password=YOUR_GHCR_READ_PAT
-# then in values-software-dev.yaml:
-# imagePullSecrets: [{ name: ghcr-pull }]
-```
-
-### 4. Install the chart
+### 4. Install
 
 ```bash
 cd helm/grant-sift
@@ -135,17 +126,16 @@ kubectl -n grant-sift logs deploy/grant-sift -f
 kubectl -n grant-sift logs -l app.kubernetes.io/name=oauth2-proxy -f
 ```
 
-Open: `https://grant-sift.software-dev.ncsa.illinois.edu`  
-You should bounce through Keycloak, then see the dashboard.
+Open: **https://grant-sift.software-dev.ncsa.illinois.edu**  
+You should bounce through Keycloak (NCSA), then see the dashboard.
 
-### 5. Load your existing SQLite DB (optional)
+### 5. Seed data (pick one)
 
 ```bash
-# from the grant-sift repo root, with context still software-dev
 ./scripts/k8s-transfer-db.sh ./grant-sift.db grant-sift grant-sift
 ```
 
-Or run one assess pass in-cluster first:
+Or:
 
 ```bash
 kubectl -n grant-sift create job --from=cronjob/grant-sift-daily grant-sift-daily-manual
@@ -159,45 +149,39 @@ kubectl -n grant-sift exec deploy/grant-sift -- python run.py status
 curl -sS -o /dev/null -w "%{http_code}\n" https://grant-sift.software-dev.ncsa.illinois.edu/
 ```
 
-Chat still uses the **Personalize** key in the browser (not the pipeline Secret).
+Chat still uses the browser **Personalize** key (not the pipeline Secret).
 
 ---
 
-## Auth reminder
+## Auth map
 
 | Setting | Where |
 |---|---|
-| Keycloak issuer, client id/secret | oauth2-proxy (`grant-sift-oauth2` Secret + issuer URL) |
-| `GRANT_SIFT_AUTH=proxy` | ConfigMap via `values-software-dev.yaml` |
-| `GRANT_SIFT_TRUSTED_PROXIES` | `10.42.0.0/16` (k3s pod CIDR on software-dev) |
-| Chat `sk_` key | Browser Personalize panel |
+| Issuer `{{keycloak.url}}/realms/{{keycloak.realm}}` | ConfigMap `grant-sift-keycloak` → oauth2-proxy env |
+| `keycloak.realm` | `values-software-dev.yaml` (default `NCSA`) |
+| Client id / secret / cookie | Secret `grant-sift-oauth2` |
+| `GRANT_SIFT_AUTH=proxy` | ConfigMap |
+| `GRANT_SIFT_TRUSTED_PROXIES` | `10.42.0.0/16` (k3s pod CIDR) |
+| Optional group gate | `GRANT_SIFT_AUTH_REQUIRED_GROUP` |
+| Chat API key | Browser Personalize |
 
-Local / no Keycloak:
+To run **without** Keycloak temporarily: set `GRANT_SIFT_AUTH=off`, `oauth2-proxy.enabled=false`, `ingress.enabled=true` in the overlay.
 
-```yaml
-config:
-  GRANT_SIFT_AUTH: "off"
-oauth2-proxy:
-  enabled: false
-ingress:
-  enabled: true
-```
-
-## Upgrade later
+## Upgrade after a new `:main`
 
 ```bash
-# after CI publishes a new :main (or pin a release tag in values-software-dev.yaml)
 helm upgrade --install grant-sift ./helm/grant-sift \
   -n grant-sift \
   -f helm/grant-sift/values-software-dev.yaml \
   -f helm/grant-sift/values-secrets.yaml
-
 kubectl -n grant-sift rollout restart deploy/grant-sift
 ```
 
 ## CronJob
 
-Default in the software-dev overlay: `0 6 * * *` America/Chicago.
+`0 6 * * *` America/Chicago.
+
+The CronJob mounts the **same PVC** as the dashboard at `/data`. `run.py daily` exports to `web/opportunities.json`, which the entrypoint has symlinked to `/data/opportunities.json`. The running pod serves that file directly (no rebuild, no separate JSON mount). Refresh the browser after a run to see updates (`Cache-Control: no-cache`).
 
 ```bash
 kubectl -n grant-sift create job --from=cronjob/grant-sift-daily grant-sift-daily-manual

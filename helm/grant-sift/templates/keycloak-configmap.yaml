@@ -1,0 +1,13 @@
+{{- if and (index .Values "oauth2-proxy" "enabled") .Values.keycloak.url .Values.keycloak.realm }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grant-sift.fullname" . }}-keycloak
+  labels:
+    {{- include "grant-sift.labels" . | nindent 4 }}
+data:
+  realm: {{ .Values.keycloak.realm | quote }}
+  url: {{ .Values.keycloak.url | trimSuffix "/" | quote }}
+  # Consumed by oauth2-proxy as OAUTH2_PROXY_OIDC_ISSUER_URL
+  issuer-url: {{ printf "%s/realms/%s" (.Values.keycloak.url | trimSuffix "/") .Values.keycloak.realm | quote }}
+{{- end }}
