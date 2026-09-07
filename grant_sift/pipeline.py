@@ -5,6 +5,7 @@ the small fraction of records that could plausibly matter.
 """
 
 import json
+import os
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -28,6 +29,29 @@ def load_config(config_dir="config"):
 # --------------------------------------------------------------------------
 # Prefilter, deterministic, no model. Only exclude what you are sure about.
 # --------------------------------------------------------------------------
+
+def screen(rec, rules):
+    """Describe a record. Never decide its fate.
+
+    Returns a short note, or None when nothing stood out. Nothing fetched is
+    discarded on the strength of it: relevance is Lumen's job, judged against
+    the roster, and a deterministic regex has no business overruling that. The
+    note is stored so you can see what a keyword screen WOULD have thrown away,
+    and query it later if the volume ever needs managing.
+    """
+    blob = f"{rec.get('title','')} {rec.get('synopsis','')}".lower()
+    notes = []
+    for pattern in rules.get("exclude_patterns", []):
+        if re.search(pattern, blob):
+            notes.append(f"matched exclusion {pattern}")
+    hits = [k for k in rules.get("include_keywords", []) if k.lower() in blob]
+    if hits:
+        notes.append("keywords: " + ", ".join(hits[:6]))
+    agency = (rec.get("agency") or "").lower()
+    if any(a.lower() in agency for a in rules.get("agency_allowlist", [])):
+        notes.append("agency allowlist")
+    return "; ".join(notes)[:500] or None
+
 
 def prefilter_pass(rec, rules):
     blob = f"{rec.get('title','')} {rec.get('synopsis','')}".lower()
@@ -59,9 +83,13 @@ def prefilter_pass(rec, rules):
 # opportunity is fetched once in its life, not once a morning.
 ENRICH_SOURCES = ("grants.gov",)
 
-# How often long loops flush their work to disk. Small enough that an
-# interruption loses seconds of progress, large enough not to fsync per record.
-COMMIT_EVERY = 10
+# Commit after every record, not in batches. Both long loops make a network
+# call per record, so a batched commit holds SQLite's single writer lock across
+# those calls: at 3.3s per model call, a batch of ten locked the database for
+# half a minute and the web app's feedback insert timed out with "database is
+# locked". Committing per record keeps the lock to the duration of an INSERT.
+# In WAL with synchronous=NORMAL that costs far less than the call it follows.
+COMMIT_EVERY = 1
 
 
 def _enrich(conn, rec, stats, verbose):
@@ -108,7 +136,7 @@ def _enrich(conn, rec, stats, verbose):
             rec[k] = v
     # Commit periodically so a long first pass is resumable: interrupting it
     # must not throw away the fetches already paid for.
-    if stats["enriched"] % (COMMIT_EVERY * 5) == 0:
+    if stats["enriched"] % COMMIT_EVERY == 0:
         conn.commit()
 
 
@@ -125,17 +153,17 @@ def ingest(conn, sources, prefilter, verbose=True):
             kept = 0
             for rec in records:
                 _enrich(conn, rec, stats, verbose)
-                # Enrichment can reveal a deadline the search response omitted,
-                # and it may already have passed.
+                # Both of these annotate. Neither drops: a closed call is still
+                # a record of what was open, and a regex is not a relevance
+                # judgement. Ranking is decided by the model and the roster.
                 if adapters.is_expired(rec):
                     stats["expired"] += 1
-                    continue
-                ok, _ = prefilter_pass(rec, prefilter)
-                if not ok:
-                    continue
+                rec["screen"] = screen(rec, prefilter)
                 kept += 1
                 if db.upsert_opportunity(conn, rec):
                     stats["new"] += 1
+                conn.commit()          # same reason: do not hold the writer
+
             stats["kept"] += kept
             db.record_source_run(conn, name, kind, url, True, kept)
             if verbose:
@@ -163,7 +191,10 @@ def ingest(conn, sources, prefilter, verbose=True):
         run(page["name"], "page", page["url"],
             lambda p=page: adapters.foundation_page(conn, p["name"], p["url"]))
 
-    stats["pruned"] = db.prune_expired(conn)
+    # Off unless asked for. Nothing fetched is thrown away by default.
+    prune_days = os.environ.get("GRANT_SIFT_PRUNE_DAYS")
+    if prune_days:
+        stats["pruned"] = db.prune_expired(conn, int(prune_days))
     conn.commit()
     return stats
 

@@ -106,13 +106,17 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     # Under the default rollback journal a reader blocks a writer outright, and
     # the 5 second busy timeout is not enough for a half-hour assess run.
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=15000")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
     if "zero_streak" not in cols:
         conn.execute("ALTER TABLE sources ADD COLUMN zero_streak INTEGER DEFAULT 0")
+        conn.commit()
+    ocols = {r["name"] for r in conn.execute("PRAGMA table_info(opportunities)")}
+    if "screen" not in ocols:
+        conn.execute("ALTER TABLE opportunities ADD COLUMN screen TEXT")
         conn.commit()
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
     if "match_domain" not in acols:
@@ -163,14 +167,15 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
         conn.execute(
             """INSERT INTO opportunities
                (id, source, external_id, kind, title, synopsis, agency, url,
-                deadline, award_ceiling, indirect_cap, content_hash,
+                deadline, award_ceiling, indirect_cap, screen, content_hash,
                 first_seen, last_seen, raw)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 rec["id"], rec["source"], rec.get("external_id"),
                 rec.get("kind", "solicitation"), rec["title"], rec.get("synopsis"),
                 rec.get("agency"), rec.get("url"), rec.get("deadline"),
-                rec.get("award_ceiling"), rec.get("indirect_cap"), content_hash,
+                rec.get("award_ceiling"), rec.get("indirect_cap"),
+                rec.get("screen"), content_hash,
                 ts, ts, json.dumps(rec.get("raw", {}))[:20000],
             ),
         )
@@ -193,12 +198,12 @@ def upsert_opportunity(conn: sqlite3.Connection, rec: dict) -> bool:
     conn.execute(
         """UPDATE opportunities
            SET last_seen=?, title=?, synopsis=?, deadline=?, agency=?, url=?,
-               award_ceiling=?, indirect_cap=?, content_hash=?
+               award_ceiling=?, indirect_cap=?, screen=?, content_hash=?
            WHERE id=?""",
         (
             ts, rec["title"], merged["synopsis"], merged["deadline"],
             rec.get("agency"), rec.get("url"), merged["award_ceiling"],
-            merged["indirect_cap"], content_hash, rec["id"],
+            merged["indirect_cap"], rec.get("screen"), content_hash, rec["id"],
         ),
     )
     if changed:
@@ -307,11 +312,20 @@ def page_changed(conn, url: str, text: str) -> bool:
 
 
 def unassessed(conn, limit: int = 200):
+    """Records with no assessment yet, live calls first.
+
+    Closed calls are kept and still get scored eventually, but they queue
+    behind anything still open: under a --limit the budget should go to calls
+    that can actually be pursued. Ordering rather than excluding means nothing
+    is permanently skipped.
+    """
     return conn.execute(
         """SELECT o.* FROM opportunities o
            LEFT JOIN assessments a ON a.opportunity_id = o.id
            WHERE a.opportunity_id IS NULL
-           ORDER BY o.first_seen DESC LIMIT ?""",
+           ORDER BY (o.deadline IS NOT NULL AND o.deadline < date('now')) ASC,
+                    o.first_seen DESC
+           LIMIT ?""",
         (limit,),
     ).fetchall()
 
@@ -355,6 +369,11 @@ def stale_sources(conn, days: int = 30, zero_runs: int = 3):
 
 def prune_expired(conn, grace_days: int = 30):
     """Delete opportunities whose deadline passed more than `grace_days` ago.
+
+    NOT called by default. Nothing fetched is discarded, so a closed call stays
+    in the database and on the dashboard marked "passed"; the record of what was
+    once open is the point. Call this by hand, or set GRANT_SIFT_PRUNE_DAYS, if
+    the table ever actually grows uncomfortable.
 
     Two deliberate exclusions:
 

@@ -1,8 +1,16 @@
-# Deterministic, free, runs before any model call. Kills most of the volume.
+# Annotation only. NOTHING HERE DISCARDS A RECORD.
 #
-# Rule of thumb: only exclude what you are certain about. A false exclusion here
-# is invisible, it never reaches the classifier and never appears in a digest.
-# A false inclusion costs a fraction of a cent.
+# Everything fetched is stored and reaches the classifier. Relevance and
+# ranking are decided by the model against config/roster.yaml, because that is
+# the only judgement here with any context; a deterministic regex has none.
+#
+# What these rules still do is leave a note on each record (the `screen`
+# column) saying what stood out: which keywords matched, whether the funder is
+# on the allowlist, and whether it looks like something a keyword screen would
+# once have thrown away. Useful for auditing what a filter WOULD have cost you.
+#
+# Closed calls are annotated too, not dropped, and pruning is off unless
+# GRANT_SIFT_PRUNE_DAYS is set. A record of what was once open is worth keeping.
 
 # 0 means every fetched record reaches the classifier. Measured 2026-09-04:
 # raising this to 1 dropped 1,041 records to 597, and the 444 difference cost

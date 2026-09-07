@@ -174,6 +174,85 @@ extracting nothing. That catches the two ways a page can look fine and be
 useless: a bot wall, and a client-rendered shell that ships JavaScript instead
 of content. Both used to be recorded as a success with zero calls found.
 
+## Nothing fetched is thrown away
+
+Every record from every source is stored. Relevance and ranking are decided by
+the model against `config/roster.yaml`, because that is the only judgement here
+with any context, and a deterministic regex has none.
+
+`config/prefilter.yaml` therefore annotates rather than filters. Its keywords,
+agency allowlist and exclusion patterns all write a note into the `screen`
+column saying what stood out, and nothing acts on it. That is queryable, so you
+can ask what a filter would have cost you:
+
+```sql
+SELECT title, screen FROM opportunities WHERE screen LIKE '%matched exclusion%';
+```
+
+On the first run after this change that query showed the old SBIR pattern would
+have discarded "NIEHS Worker Training Program's SBIR E-Learning", a
+learning-technologies call, and one titled simply "Sociology". Measured: the
+keyword gate had been cutting 1,041 records to 597, and assessing the
+difference costs about 0.4 coins.
+
+Closed calls are kept and marked "passed" rather than dropped, since a record
+of what was once open is worth having. They queue behind live calls in
+`assess`, so a `--limit` spends the budget where it can still be acted on.
+Pruning is off unless `GRANT_SIFT_PRUNE_DAYS` is set.
+
+## The web backend
+
+`python run.py serve` adds two things a static page cannot do. It binds to
+localhost by default, and that placement is the access control: there is no
+login, and the dashboard exposes the roster, which names real collaborators and
+how warm each relationship is.
+
+```bash
+python run.py serve                      # http://127.0.0.1:8080
+python run.py serve --host 0.0.0.0 --port 8080   # only on a network you trust
+```
+
+**Feedback.** Thumbs up or down with one optional comment, written to the same
+`feedback` table the classifier reads calibration examples from, so a judgement
+made in the browser reaches the next prompt. Rate limited per client
+(`GRANT_SIFT_FEEDBACK_PER_HOUR`, default 20) because those rows move the model,
+not merely fill a log.
+
+**Chat about one call.** NCSA Lumen sends no CORS headers, verified against the
+live gateway, so a browser cannot call it directly and this endpoint forwards
+the request. The viewer supplies their own key: it is held in `sessionStorage`
+for that tab, sent per request, forwarded, and dropped. It is never stored,
+never logged, and error text is scrubbed before it reaches the page.
+
+Because that proxy would otherwise be an SSRF pivot, `base_url` must be https
+and its host must be on an allowlist (`GRANT_SIFT_CHAT_ALLOWED_HOSTS`).
+Verified refused: cloud metadata addresses, plain http, and arbitrary hosts.
+
+The context sent is what the pipeline already holds for that call, its
+synopsis, score, rationale and closest roster match. It never re-fetches the
+solicitation, which would put a third-party site in a user-facing request path.
+
+The dashboard still works with this server down. It reads the static
+`opportunities.json`, and the thumbs and chat controls disable themselves when
+`/api/health` does not answer.
+
+## Two writers, one SQLite
+
+SQLite is enough: one nightly batch and a handful of feedback rows, on one
+host. It runs in WAL with a 30 second busy timeout so the web app can insert
+while the nightly job writes.
+
+The subtlety is transaction length, not the database. Both long loops make a
+network call per record, so batching commits held SQLite's single writer lock
+across those calls: at 3.3s per model call a batch of ten locked the database
+for half a minute and the browser's feedback insert failed with "database is
+locked". Both loops now commit per record, which keeps the lock to the duration
+of an INSERT and costs nothing next to the call it follows.
+
+Postgres would only be warranted by many concurrent writers, replication, or
+running the app on a different host from the cron job over shared storage,
+where SQLite locking is unsafe.
+
 ## Failure mode to watch
 
 The risk is not a crash. It is a source that quietly stops yielding while the

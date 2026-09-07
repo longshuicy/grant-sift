@@ -1,2 +1,6 @@
 requests>=2.31
 PyYAML>=6.0
+
+# web backend: feedback writes and the chat proxy (run.py serve)
+fastapi>=0.110
+uvicorn>=0.27

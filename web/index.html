@@ -121,6 +121,36 @@
              background: var(--paper); border: 1px solid var(--rule); border-radius: 9px; }
   .areatag:hover { color: var(--moss); border-color: var(--moss); }
 
+  .acts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .vote { font: inherit; font-size: 13px; padding: 2px 9px; cursor: pointer;
+          color: var(--ink-soft); background: var(--paper);
+          border: 1px solid var(--rule); border-radius: 11px; }
+  .vote:hover:not(:disabled) { color: var(--moss); border-color: var(--moss); }
+  .vote[aria-pressed="true"] { color: var(--moss); border-color: var(--moss); font-weight: 500; }
+  .vote:disabled { opacity: .45; cursor: not-allowed; }
+  .votenote { font-size: 12px; color: var(--ink-faint); }
+  .fbbox { margin-top: 8px; display: none; gap: 6px; }
+  .fbbox.on { display: flex; flex-wrap: wrap; }
+  .fbbox input { flex: 1 1 260px; font: inherit; font-size: 13px; padding: 4px 7px;
+                 border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+
+  .chat { margin-top: 10px; display: none; border-left: 2px solid var(--rule); padding-left: 12px; }
+  .chat.on { display: block; }
+  .chat .log { max-height: 320px; overflow-y: auto; font-size: 13.5px; }
+  .chat .turn { margin: 8px 0; white-space: pre-wrap; }
+  .chat .turn b { color: var(--moss); font-weight: 500; }
+  .chat form { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .chat input[type=text] { flex: 1 1 240px; font: inherit; font-size: 13px; padding: 4px 7px;
+                 border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+  .chat .hint { font-size: 12px; color: var(--ink-faint); margin-top: 6px; }
+  .keybar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+            margin: 0 0 14px; padding: 9px 12px; font-size: 13px;
+            background: var(--paper); border: 1px solid var(--rule); }
+  .keybar input, .keybar select { font: inherit; font-size: 13px; padding: 3px 6px;
+            border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
+  .keybar input[type=password] { flex: 1 1 200px; }
+  .offline { color: var(--ink-faint); font-size: 12.5px; }
+
   .empty { padding: 60px 0; text-align: center; color: var(--ink-soft); }
   .empty b { font-family: var(--serif); font-size: 19px; display: block; color: var(--ink); margin-bottom: 6px; }
 
@@ -164,6 +194,14 @@
       <option value="score">Sort: highest relevance</option>
       <option value="new">Sort: recently added</option>
     </select>
+  </div>
+
+  <div class="keybar" id="keybar" hidden>
+    <span><b>Chat key</b></span>
+    <input id="k-key" type="password" placeholder="your API key (sk_...)" autocomplete="off">
+    <input id="k-model" type="text" placeholder="model" value="gemma-4-31b-it" size="16">
+    <input id="k-base" type="text" placeholder="base URL" value="https://lumen.ncsa.illinois.edu/v1" size="30">
+    <span class="offline" id="k-note">held in this tab only, never stored on the server</span>
   </div>
 
   <div class="tally" id="tally"></div>
@@ -248,6 +286,22 @@ function rowHTML(o) {
       ${fit}
       <div class="acts">
         ${o.url ? `<a class="act" href="${esc(o.url)}" target="_blank" rel="noopener">Open the full call &rarr;</a>` : ""}
+        <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
+        <button class="vote" data-vote="down" data-id="${esc(o.id)}" aria-pressed="false" title="Not for us: score it lower next time">&#9661; not for us</button>
+        <button class="act" data-chat="${esc(o.id)}">Ask about this call</button>
+        <span class="votenote" data-fb="${esc(o.id)}"></span>
+      </div>
+      <div class="fbbox" data-fbbox="${esc(o.id)}">
+        <input type="text" maxlength="500" placeholder="one comment, optional: why?" data-fbnote="${esc(o.id)}">
+        <button class="vote" data-fbsend="${esc(o.id)}">Send</button>
+      </div>
+      <div class="chat" data-chatbox="${esc(o.id)}">
+        <div class="log" data-chatlog="${esc(o.id)}"></div>
+        <form data-chatform="${esc(o.id)}">
+          <input type="text" placeholder="e.g. what would we need a domain PI for here?" data-chatinput="${esc(o.id)}">
+          <button class="vote" type="submit">Ask</button>
+        </form>
+        <div class="hint" data-chathint="${esc(o.id)}"></div>
       </div>
       ${o.synopsis
         ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
@@ -264,7 +318,180 @@ function render() {
     ? rows.map(rowHTML).join("")
     : `<div class="empty"><b>Nothing matches those filters.</b>
          Clear a filter, or widen the search.</div>`;
+  // The rows were just replaced, so the new buttons need their state back.
+  if (API) { paintFeedback(); } else {
+    document.querySelectorAll("[data-vote],[data-chat],[data-fbsend]")
+      .forEach(b => { b.disabled = true; });
+  }
 }
+
+
+// ---------------------------------------------------------------------------
+// Backend features. Everything above works from the static JSON alone; these
+// two need `run.py serve`. If it is not answering, the controls disable
+// themselves rather than throwing, so the list stays usable.
+// ---------------------------------------------------------------------------
+let API = false;
+const CHATS = {};                       // opportunity id -> [{role, content}]
+
+const keyBar = () => ({
+  key:   document.getElementById("k-key").value.trim(),
+  model: document.getElementById("k-model").value.trim(),
+  base:  document.getElementById("k-base").value.trim(),
+});
+
+// sessionStorage, not localStorage: the key should not outlive the tab.
+try {
+  const saved = JSON.parse(sessionStorage.getItem("gs.chat") || "{}");
+  if (saved.model) document.getElementById("k-model").value = saved.model;
+  if (saved.base)  document.getElementById("k-base").value  = saved.base;
+} catch (e) {}
+["k-model", "k-base"].forEach(id =>
+  document.getElementById(id).addEventListener("change", () => {
+    try {
+      const { model, base } = keyBar();
+      sessionStorage.setItem("gs.chat", JSON.stringify({ model, base }));
+    } catch (e) {}
+  }));
+
+async function probeAPI() {
+  try {
+    const r = await fetch("api/health");
+    API = r.ok;
+  } catch (e) { API = false; }
+  document.getElementById("keybar").hidden = !API;
+  document.querySelectorAll("[data-vote],[data-chat],[data-fbsend]")
+    .forEach(b => { b.disabled = !API; });
+  if (!API) {
+    document.querySelectorAll(".votenote").forEach(n => {
+      n.textContent = "read only: start run.py serve for feedback and chat";
+    });
+  } else {
+    loadFeedback();
+  }
+}
+
+let FB = {};                            // opportunity id -> {up, down, note}
+
+async function loadFeedback() {
+  try {
+    const r = await fetch("api/feedback");
+    if (!r.ok) return;
+    FB = (await r.json()).summary || {};
+  } catch (e) { return; }
+  paintFeedback();
+}
+
+// Painted from the cached summary, so re-rendering on a keystroke costs
+// nothing. One request per page load, not one per visible row.
+function paintFeedback() {
+  document.querySelectorAll("[data-fb]").forEach(node => {
+    const f = FB[node.dataset.fb];
+    node.textContent = f
+      ? `recorded: ${f.up} useful, ${f.down} not for us` + (f.note ? ` (latest: ${f.note})` : "")
+      : "";
+  });
+}
+
+// Thumbs reveal the comment box; the vote is only sent on Send, so one click
+// cannot post an empty judgement by accident.
+document.getElementById("list").addEventListener("click", e => {
+  const vote = e.target.closest("[data-vote]");
+  if (vote && API) {
+    const id = vote.dataset.id;
+    const box = document.querySelector(`[data-fbbox="${CSS.escape(id)}"]`);
+    document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`)
+      .forEach(b => b.setAttribute("aria-pressed", b === vote));
+    box.classList.add("on");
+    box.dataset.verdict = vote.dataset.vote;
+    box.querySelector("input").focus();
+    return;
+  }
+
+  const send = e.target.closest("[data-fbsend]");
+  if (send && API) { sendFeedback(send.dataset.fbsend); return; }
+
+  const chat = e.target.closest("[data-chat]");
+  if (chat) {
+    const box = document.querySelector(`[data-chatbox="${CSS.escape(chat.dataset.chat)}"]`);
+    box.classList.toggle("on");
+    if (box.classList.contains("on")) box.querySelector("input").focus();
+  }
+});
+
+async function sendFeedback(id) {
+  const box  = document.querySelector(`[data-fbbox="${CSS.escape(id)}"]`);
+  const note = box.querySelector("input").value.trim();
+  const verdict = box.dataset.verdict;
+  const label = document.querySelector(`[data-fb="${CSS.escape(id)}"]`);
+  if (!verdict) return;
+  label.textContent = "sending...";
+  try {
+    // The nightly job can hold SQLite's writer briefly, so allow for a wait,
+    // but never leave the button saying "sending..." forever.
+    const r = await fetch("api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ opportunity_id: id, verdict, note }),
+      signal: AbortSignal.timeout(45000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { label.textContent = d.detail || `failed (${r.status})`; return; }
+    const f = FB[id] || { up: 0, down: 0, note: "" };
+    if (verdict === "up") f.up++; else f.down++;
+    f.note = note;
+    FB[id] = f;
+    label.textContent = `recorded "${verdict}". It joins the next prompt as a calibration example.`;
+    box.classList.remove("on");
+    box.querySelector("input").value = "";
+  } catch (err) {
+    label.textContent = err.name === "TimeoutError"
+      ? "timed out; the nightly job may be writing. Try again shortly."
+      : "could not reach the server";
+  }
+}
+
+document.getElementById("list").addEventListener("submit", async e => {
+  const form = e.target.closest("[data-chatform]");
+  if (!form) return;
+  e.preventDefault();
+  const id = form.dataset.chatform;
+  const input = form.querySelector("input");
+  const q = input.value.trim();
+  if (!q) return;
+
+  const { key, model, base } = keyBar();
+  const hint = document.querySelector(`[data-chathint="${CSS.escape(id)}"]`);
+  if (!key) { hint.textContent = "Enter your API key in the bar at the top first."; return; }
+
+  const log = document.querySelector(`[data-chatlog="${CSS.escape(id)}"]`);
+  CHATS[id] = CHATS[id] || [];
+  CHATS[id].push({ role: "user", content: q });
+  log.insertAdjacentHTML("beforeend", `<div class="turn"><b>You</b><br>${esc(q)}</div>`);
+  input.value = "";
+  hint.textContent = "thinking...";
+  log.scrollTop = log.scrollHeight;
+
+  try {
+    const r = await fetch("api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        opportunity_id: id, api_key: key, model, base_url: base,
+        messages: CHATS[id],
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { hint.textContent = d.detail || `failed (${r.status})`; return; }
+    CHATS[id].push({ role: "assistant", content: d.content });
+    log.insertAdjacentHTML("beforeend", `<div class="turn"><b>Model</b><br>${esc(d.content)}</div>`);
+    const u = d.usage || {};
+    hint.textContent = u.prompt_tokens
+      ? `${u.prompt_tokens} in / ${u.completion_tokens} out tokens, billed to your key`
+      : "";
+    log.scrollTop = log.scrollHeight;
+  } catch (err) {
+    hint.textContent = "could not reach the server";
+  }
+});
 
 function boot(payload) {
   DATA = payload.opportunities || [];
@@ -299,6 +526,7 @@ function boot(payload) {
   document.getElementById("foot").textContent =
     `Generated ${payload.generated_at || "unknown"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
   render();
+  probeAPI();
 }
 
 document.getElementById("q").addEventListener("input", e => {
