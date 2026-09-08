@@ -416,6 +416,8 @@
     <div class="filters">
       <button class="chip" data-filter="soon" aria-pressed="false">Closing soon</button>
       <button class="chip" data-filter="match" aria-pressed="false">Roster match</button>
+      <button class="chip" data-filter="via-me" aria-pressed="false" hidden
+              title="Calls where you are the NCSA contact to introduce">Via me</button>
       <button class="chip" data-filter="embedded" aria-pressed="false">Domain calls</button>
       <button class="chip" data-filter="ci" aria-pressed="false">CI programs</button>
       <button class="chip" data-filter="foundation" aria-pressed="false">Foundations</button>
@@ -543,6 +545,27 @@ function shortArea(d, max = 42) {
   return d.slice(0, max - 1).replace(/\s+\S*$/, "").trimEnd() + "…";
 }
 
+function viaMe(o) {
+  // "Via us" on the card is contact.ncsa_contact; keep calls where the
+  // signed-in person is on that list (email or NetID).
+  const people = (o.contact && o.contact.ncsa_contact) || [];
+  if (!people.length || !AUTH.authenticated) return false;
+  const email = (AUTH.email || "").trim().toLowerCase();
+  const user = (AUTH.username || "").trim().toLowerCase();
+  // Keycloak sometimes puts NetID in the email claim with no @.
+  const netid = (email.includes("@") ? email.split("@")[0] : (email || user)).toLowerCase();
+  const full = email.includes("@") ? email : "";
+  return people.some(p => {
+    const pe = (p.email || "").trim().toLowerCase();
+    if (!pe) return false;
+    if (full && pe === full) return true;
+    if (netid && (pe === netid + "@illinois.edu"
+                  || pe === netid + "@ncsa.illinois.edu"
+                  || pe.startsWith(netid + "@"))) return true;
+    return false;
+  });
+}
+
 function matches(o) {
   if (AREA && o.match_domain !== AREA) return false;
   if (QUERY) {
@@ -558,6 +581,7 @@ function matches(o) {
   for (const f of ACTIVE) {
     if (f === "soon"     && !(daysAway(o.deadline) !== null && daysAway(o.deadline) <= 30)) return false;
     if (f === "match"    && !o.match_name) return false;
+    if (f === "via-me"   && !viaMe(o)) return false;
     if (f === "embedded" && !["embedded_software","domain_subaward"].includes(o.category)) return false;
     if (f === "ci"       && o.category !== "ci_program") return false;
     if (f === "foundation" && ["grants.gov","nsf"].includes(o.source)) return false;
@@ -949,6 +973,15 @@ async function probeAPI() {
         : `not signed in${AUTH.error ? ": " + AUTH.error : ""}`;
     } else {
       who.textContent = "";
+    }
+    const viaChip = document.querySelector('.chip[data-filter="via-me"]');
+    if (viaChip) {
+      const show = !!AUTH.authenticated;
+      viaChip.hidden = !show;
+      if (!show && ACTIVE.has("via-me")) {
+        ACTIVE.delete("via-me");
+        viaChip.setAttribute("aria-pressed", "false");
+      }
     }
     // Writes will be refused without an identity once the gate is on, so do
     // not offer controls that are certain to fail.
