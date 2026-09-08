@@ -56,13 +56,16 @@
 
   /* ---- controls ---- */
   .controls {
-    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    display: flex; flex-direction: column; gap: 10px;
     margin: 26px 0 8px;
   }
-  .search {
-    flex: 1 1 260px; min-width: 200px;
+  .controls .search {
+    width: 100%; box-sizing: border-box;
     padding: 9px 12px; font: inherit; color: var(--ink);
     background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+  }
+  .filters {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
   }
   .search:focus, .chip:focus-visible, .sortsel:focus {
     outline: 2px solid var(--moss); outline-offset: 1px;
@@ -410,19 +413,21 @@
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
-    <button class="chip" data-filter="soon" aria-pressed="false">Closing soon</button>
-    <button class="chip" data-filter="match" aria-pressed="false">Roster match</button>
-    <button class="chip" data-filter="embedded" aria-pressed="false">Domain calls</button>
-    <button class="chip" data-filter="ci" aria-pressed="false">CI programs</button>
-    <button class="chip" data-filter="foundation" aria-pressed="false">Foundations</button>
-    <select id="area" class="sortsel" aria-label="Filter by roster area">
-      <option value="">All roster areas</option>
-    </select>
-    <select id="sort" class="sortsel">
-      <option value="score" selected>Sort: highest relevance</option>
-      <option value="deadline">Sort: soonest deadline</option>
-      <option value="new">Sort: recently added</option>
-    </select>
+    <div class="filters">
+      <button class="chip" data-filter="soon" aria-pressed="false">Closing soon</button>
+      <button class="chip" data-filter="match" aria-pressed="false">Roster match</button>
+      <button class="chip" data-filter="embedded" aria-pressed="false">Domain calls</button>
+      <button class="chip" data-filter="ci" aria-pressed="false">CI programs</button>
+      <button class="chip" data-filter="foundation" aria-pressed="false">Foundations</button>
+      <select id="area" class="sortsel" aria-label="Filter by roster area">
+        <option value="">All roster areas</option>
+      </select>
+      <select id="sort" class="sortsel">
+        <option value="score" selected>Sort: highest relevance</option>
+        <option value="deadline">Sort: soonest deadline</option>
+        <option value="new">Sort: recently added</option>
+      </select>
+    </div>
   </div>
 
   <div class="tally" id="tally"></div>
