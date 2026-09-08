@@ -27,6 +27,14 @@ helm/**/charts/
 
 # Deployment roster: real collaborator names/status. Ship the example only.
 config/roster.yaml
+# Our own staff and their addresses. Same rule as the roster: the example is
+# tracked, the real file is not.
+config/ncsa_staff.yaml
+# Transient import artefact from scripts/build_contacts.py, merged by
+# scripts/build_roster.py and then deletable.
+config/contacts.yaml
+# Scraped Illinois Experts pages, rebuildable with scripts/crawl_areas.py
+.cache/
 
 # Python
 __pycache__/
@@ -42,3 +50,9 @@ env/
 .idea/
 .vscode/
 *.swp
+
+# Proposals and project documents. Real unfunded/funded proposal text: never
+# commit it, never ship it in an image. scripts/build_roster.py reads this
+# directory and writes only derived summary lines into the roster.
+Projects/
+projects/

@@ -1,0 +1,30 @@
+# Your own staff, the internal half of every introduction.
+#
+# NOT committed with real data. Copy to config/ncsa_staff.yaml (gitignored).
+#
+# Optional, and only useful alongside config/contacts.yaml: it turns the
+# `ncsa_contact` names there into addresses, so the dashboard can show who
+# here already knows a researcher AND how to reach them, rather than a bare
+# name the reader then has to go and look up.
+#
+# `as_written` is the JOIN KEY: it must match the spelling used in
+# contacts.yaml's `ncsa_contact` (which is whatever the source spreadsheet
+# said, typos included). `name` and `email` are the truth.
+#
+# Do not guess addresses. A guessed netid becomes a mailto link that silently
+# bounces or, worse, reaches a different person with the same surname. Take
+# them from your institution's directory. An entry with no email still helps -
+# the dashboard shows the name and says the address is missing.
+
+- as_written: Your Staffer
+  name: Your Staffer
+  email: staffer@example.edu
+  title: Senior Research Programmer
+  office: Software
+
+# Where the spreadsheet spelled the name wrong, keep the misspelling as the
+# join key and record what it should be.
+- as_written: Jane Smyth
+  name: Jane Smith
+  email: jsmith@example.edu
+  note: spreadsheet misspells the surname as "Jane Smyth"

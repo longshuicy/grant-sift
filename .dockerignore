@@ -31,3 +31,9 @@ run.log
 helm/
 agent-transcripts
 README.md
+
+# Proposals and project documents. Real unfunded/funded proposal text: never
+# commit it, never ship it in an image. scripts/build_roster.py reads this
+# directory and writes only derived summary lines into the roster.
+Projects/
+projects/

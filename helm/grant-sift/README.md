@@ -95,7 +95,8 @@ kubectl -n grant-sift create secret generic grant-sift-oauth2 \
 
 # Collaborator roster (gitignored — not in the image)
 kubectl -n grant-sift create configmap grant-sift-roster \
-  --from-file=roster.yaml=config/roster.yaml
+  --from-file=roster.yaml=config/roster.yaml \
+  --from-file=ncsa_staff.yaml=config/ncsa_staff.yaml
 ```
 
 Update roster later:
@@ -103,6 +104,7 @@ Update roster later:
 ```bash
 kubectl -n grant-sift create configmap grant-sift-roster \
   --from-file=roster.yaml=config/roster.yaml \
+  --from-file=ncsa_staff.yaml=config/ncsa_staff.yaml \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n grant-sift rollout restart deploy/grant-sift
 ```

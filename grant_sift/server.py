@@ -27,6 +27,7 @@ does hold, and it would be dishonest to call this nothing:
 """
 
 import hashlib
+import ipaddress
 import os
 import re
 import secrets
@@ -40,7 +41,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, db, pipeline
+from . import adapters, auth, db, pipeline
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -100,6 +101,7 @@ CHAT_TIMEOUT = int(os.environ.get("GRANT_SIFT_CHAT_TIMEOUT", "120"))
 MAX_NOTE = 500
 MAX_CHAT_CHARS = 4000
 MAX_TURNS = 12
+
 
 app = FastAPI(title="Grant Sift", docs_url=None, redoc_url=None)
 
@@ -168,17 +170,36 @@ def whoami(request: Request):
 
 
 @app.get("/api/roster")
-def roster_list():
-    """Dashboard-added entries only. The YAML baseline is not exposed here:
-    it is a curated file, and the merge happens at assessment time."""
+def roster_list(request: Request):
+    """The whole roster, both halves, so people can see who is already on it.
+
+    This used to return dashboard additions only, which made the form a
+    write-only hole: you could not tell whether someone was already there, so
+    the obvious thing to do was add them again. Browsing is the cure for
+    duplicate entries.
+
+    Behind auth, and it carries email addresses on purpose - finding out how to
+    reach a collaborator is most of what the roster is for.
+    """
+    auth.require_user(request)
     conn = _conn()
     try:
-        rows = conn.execute(
-            """SELECT id, domain, collaborator, project, years, our_role,
-                      funders, status, notes, created_by, created_at
-               FROM roster_entries WHERE retired = 0 ORDER BY created_at DESC"""
-        ).fetchall()
-        return {"entries": [dict(r) for r in rows]}
+        entries = [
+            {"origin": "file", "name": e["name"], "areas": e.get("areas") or [],
+             "unit": e.get("unit"), "org": e.get("org"), "email": e.get("email"),
+             "status": e["status"], "projects": e.get("projects") or [],
+             "ncsa_contact": e.get("ncsa_contact") or [],
+             "outreach": e.get("outreach"), "review": e.get("review")}
+            for e in _roster_entries()
+        ]
+        for a in pipeline.normalise(db.roster_additions(conn)):
+            entries.append(
+                {"origin": "dashboard", "id": a.get("id"), "name": a["name"],
+                 "areas": a.get("areas") or [], "unit": None, "org": None,
+                 "email": None, "status": a["status"],
+                 "projects": a.get("projects") or [], "ncsa_contact": [],
+                 "created_by": a.get("created_by"), "notes": a.get("notes")})
+        return {"count": len(entries), "entries": entries}
     finally:
         conn.close()
 
@@ -272,6 +293,213 @@ def _identity_email(principal: auth.Principal, requested: str | None) -> str:
     # one login cannot subscribe a stranger.
     base = principal.email or principal.username
     return _normalize_email(base)
+
+
+_SOURCES_CACHE = None
+
+
+def _sources_file():
+    global _SOURCES_CACHE
+    if _SOURCES_CACHE is None:
+        try:
+            _SOURCES_CACHE = pipeline.load_config()[0]
+        except Exception:  # noqa: BLE001
+            _SOURCES_CACHE = {}
+    return _SOURCES_CACHE
+
+
+# Hosts the ingester must never be pointed at. This endpoint takes a URL from
+# a user and a background job then FETCHES it server-side, which is the exact
+# shape of an SSRF: without this, "add a source" is an invitation to make the
+# server read its own cloud metadata endpoint or an internal admin page and
+# store the response as an opportunity synopsis.
+_BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1",
+                  "169.254.169.254", "metadata.google.internal"}
+
+
+def _all_source_names(cfg, conn):
+    """Every source name currently in play, file and dashboard alike."""
+    out = []
+    for bucket in ("foundations", "feeds"):
+        out += [{"name": e["name"]} for e in (cfg.get(bucket) or []) if e.get("name")]
+    out += [{"name": a["name"]} for a in db.source_additions(conn)]
+    return out
+
+
+def _validate_source_url(raw: str) -> str:
+    """Accept a public http(s) page, reject everything else.
+
+    A bare "example.org/grants" is accepted and assumed https, because that is
+    how people paste URLs. But the scheme is checked on what they actually
+    typed: "javascript:alert(1)" contains no "://", so blindly prefixing
+    https:// turns it into a URL that parses cleanly and passes.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        raise HTTPException(400, "url is required")
+    if ":" in raw.split("/")[0] and "://" not in raw:
+        raise HTTPException(400, "url must be a http(s) address")
+    parsed = urlparse(raw if "://" in raw else "https://" + raw)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(400, "url must be a http(s) address")
+    host = (parsed.hostname or "").lower()
+    if not host or "." not in host:
+        raise HTTPException(400, "url must have a public hostname")
+    if host in _BLOCKED_HOSTS:
+        raise HTTPException(400, "that host is not fetchable")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        pass          # a name, not a literal address; DNS is resolved at fetch
+    else:
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast):
+            raise HTTPException(400, "that host is not fetchable")
+    return parsed.geturl()
+
+
+@app.get("/api/sources")
+def sources_list(request: Request):
+    """Every source Grant Sift reads, with how each one is actually doing.
+
+    Health belongs next to the list rather than in a separate status command:
+    a source that silently stopped yielding is the failure this tool exists to
+    catch, and someone browsing to see whether a funder is covered is exactly
+    the person who should notice that it last succeeded in March.
+    """
+    auth.require_user(request)
+    cfg = _sources_file()
+    conn = _conn()
+    try:
+        runs = {r["name"]: dict(r) for r in conn.execute(
+            """SELECT name, kind, url, last_run, last_success, last_yield,
+                      zero_streak, last_error FROM sources""")}
+        stale = {s["name"] for s in db.stale_sources(conn)}
+        out = []
+
+        def add(name, kind, url, origin, cadence=None, notes=None, sid=None):
+            r = runs.get(name, {})
+            out.append({
+                "name": name, "kind": kind, "url": url, "origin": origin,
+                "cadence": cadence, "notes": notes, "id": sid,
+                "last_success": r.get("last_success"), "last_run": r.get("last_run"),
+                "last_yield": r.get("last_yield"), "last_error": r.get("last_error"),
+                "stale": name in stale,
+            })
+
+        if (cfg.get("grants_gov") or {}).get("enabled"):
+            add("grants.gov", "api", adapters.GRANTS_GOV_URL, "file")
+        if (cfg.get("nsf") or {}).get("enabled"):
+            add("nsf", "api", adapters.NSF_URL, "file")
+        for f in cfg.get("feeds") or []:
+            add(f["name"], "feed", f["url"], "file")
+        for f in cfg.get("foundations") or []:
+            add(f["name"], "page", f["url"], "file", f.get("cadence"), f.get("notes"))
+        for a in db.source_additions(conn):
+            add(a["name"], a["kind"], a["url"], "dashboard",
+                a["cadence"], a["notes"], a["id"])
+
+        return {"count": len(out),
+                "keywords": cfg.get("keywords") or [],
+                "sources": out}
+    finally:
+        conn.close()
+
+
+@app.post("/api/sources")
+def sources_add(request: Request, payload: dict = Body(...)):
+    """Add a funder page or feed through the dashboard.
+
+    Never written back to config/sources.yaml; merged with it at ingest time,
+    exactly as roster additions are merged at assess time.
+
+    DEDUPLICATION is the whole reason this is not a plain insert. Two people
+    will not type the same URL for the same funder - http vs https, a www, a
+    trailing slash, a tracking parameter - and each spelling would become its
+    own source, fetched on its own cadence, reporting its own health. So the
+    check is on a normalised key, and it covers the YAML baseline too: the
+    file can easily already contain what someone is about to add.
+    """
+    principal = auth.require_user(request)
+    _rate_limit(f"source:{_client(request)}", ROSTER_PER_HOUR)
+
+    name = " ".join(str(payload.get("name") or "").split())[:120]
+    url = str(payload.get("url") or "").strip()[:500]
+    kind = (payload.get("kind") or "page").strip().lower()
+    cadence = (payload.get("cadence") or "weekly").strip().lower()
+    notes = " ".join(str(payload.get("notes") or "").split())[:500]
+
+    if not name:
+        raise HTTPException(400, "name is required")
+    if kind not in ("page", "feed"):
+        raise HTTPException(400, "kind must be page or feed")
+    if cadence not in ("daily", "weekly", "monthly"):
+        raise HTTPException(400, "cadence must be daily, weekly or monthly")
+
+    url = _validate_source_url(url)
+
+    key = db._dedup_key(url)
+    cfg = _sources_file()
+    for bucket in ("foundations", "feeds"):
+        for existing in cfg.get(bucket) or []:
+            if db._dedup_key(existing.get("url", "")) == key:
+                raise HTTPException(
+                    409, f"already covered by '{existing['name']}' in "
+                         "config/sources.yaml")
+    conn = _conn()
+    try:
+        dup = db.source_exists(conn, url)
+        if dup is not None:
+            if dup["retired"]:
+                conn.execute("UPDATE source_entries SET retired = 0 WHERE id = ?",
+                             (dup["id"],))
+                conn.commit()
+                return {"ok": True, "id": dup["id"], "restored": True,
+                        "note": "this source had been retired; it is active again "
+                                "and will be read on the next ingest"}
+            raise HTTPException(409, f"already added as '{dup['name']}'")
+        # Uniqueness is on the URL, because that is a source's identity: one
+        # funder can legitimately have two pages worth reading. But the same
+        # NAME twice is usually somebody re-adding a funder from a different
+        # page, so say so rather than either blocking it or staying silent.
+        clash = next(
+            (o["name"] for o in _all_source_names(cfg, conn)
+             if o["name"].lower() == name.lower()), None)
+        new_id = db.add_source_entry(
+            conn, {"name": name, "url": url, "kind": kind,
+                   "cadence": cadence, "notes": notes},
+            created_by=principal.label)
+        total = conn.execute(
+            "SELECT COUNT(*) n FROM source_entries WHERE retired = 0").fetchone()["n"]
+    finally:
+        conn.close()
+    note = ("read on the next ingest; new records are scored by the assess "
+            "run that follows it")
+    if clash:
+        note = (f"added, but '{clash}' is already a source under a different "
+                f"URL - check you did not mean to replace it. ") + note
+    return {"ok": True, "id": new_id, "added": total, "note": note}
+
+
+@app.post("/api/sources/{entry_id}/retire")
+def sources_retire(request: Request, entry_id: int):
+    """Stop reading a dashboard-added source, without losing the record of it.
+
+    Only dashboard additions can be retired here. A source in the YAML is part
+    of the reviewed baseline and is removed by editing that file.
+    """
+    auth.require_user(request)
+    _rate_limit(f"source:{_client(request)}", ROSTER_PER_HOUR)
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "UPDATE source_entries SET retired = 1 WHERE id = ?", (entry_id,))
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(404, "no such source")
+        return {"ok": True, "id": entry_id}
+    finally:
+        conn.close()
 
 
 @app.get("/api/subscriptions")
@@ -460,20 +688,62 @@ how to approach it.
 
 You are given what the pipeline holds about that call: its title, funder,
 deadline, award figures, the relevance score and rationale, and the closest
-past collaboration from the group's roster. Answer only from that context and
-from general knowledge of how these programmes work.
+person on the group's roster. Answer only from that context and from general
+knowledge of how these programmes work.
+
+The roster holds two kinds of person and the context says which. A PAST
+COLLABORATION is someone the group has worked with. An OUTREACH LIST contact
+has only ever been emailed - there is no shared project, no prior award and no
+existing relationship. Never describe the second as the first: someone may
+repeat your wording in an email to that person.
 
 Be concrete and short. If the context does not contain the answer, say so and
 name what document would: usually the full solicitation, which is linked from
 the dashboard. Do not invent deadlines, eligibility rules or award figures."""
 
 
+_ROSTER_CACHE = None
+_ROSTER_ENTRIES = None
+
+
+def _roster_entries():
+    """The roster file's parties, loaded once per process.
+
+    Same caching argument as _roster(): this sits in a request path, and a
+    roster edit already needs a restart the way every other config here does.
+    """
+    global _ROSTER_ENTRIES
+    if _ROSTER_ENTRIES is None:
+        try:
+            _ROSTER_ENTRIES = pipeline.load_config()[1]
+        except Exception:  # noqa: BLE001
+            _ROSTER_ENTRIES = []
+    return _ROSTER_ENTRIES
+
+
+def _roster():
+    """Roster, loaded once per process, for contact details only.
+
+    Read on first use rather than at import so a missing or malformed
+    roster degrades the chat context instead of preventing the app from
+    starting. Cached because this sits in a request path; a roster edit needs
+    a restart, which is already true of every other config here.
+    """
+    global _ROSTER_CACHE
+    if _ROSTER_CACHE is None:
+        try:
+            _ROSTER_CACHE = pipeline.contact_index(pipeline.load_config()[1])
+        except Exception:  # noqa: BLE001
+            _ROSTER_CACHE = {}
+    return _ROSTER_CACHE
+
+
 def _opportunity_context(conn, opp_id: str) -> str:
     row = conn.execute(
         """SELECT o.title, o.agency, o.source, o.url, o.deadline, o.award_ceiling,
                   o.indirect_cap, o.synopsis,
-                  a.score, a.category, a.rationale, a.match_name, a.match_domain,
-                  a.match_project, a.match_status, a.match_rationale
+                  a.score, a.category, a.rationale, a.match_name, a.match_kind,
+                  a.match_domain, a.match_project, a.match_status, a.match_rationale
            FROM opportunities o
            LEFT JOIN assessments a ON a.opportunity_id = o.id
            WHERE o.id = ?""",
@@ -496,12 +766,33 @@ def _opportunity_context(conn, opp_id: str) -> str:
             f"Why: {r['rationale']}",
         ]
     if r.get("match_name"):
-        lines += [
-            f"Closest past collaboration: {r['match_name']}"
-            f" in {r['match_domain']} ({r['match_status']})",
-            f"That project: {r['match_project']}",
-            f"Why that person: {r['match_rationale']}",
-        ]
+        # A contact is not a collaboration, and the chat must not blur them:
+        # "we worked with them" is the single most damaging thing it could
+        # get wrong here, because it is exactly what someone would repeat in
+        # an email to that person.
+        if r.get("match_kind") == "contact":
+            lines += [
+                f"Closest roster fit: {r['match_name']} in {r['match_domain']}"
+                f" ({r['match_status']}). This person is on our OUTREACH LIST:"
+                " we have emailed them, we have NOT worked with them, and there"
+                " is no past project. Describe it as a lead, never as a"
+                " collaboration or a prior award.",
+            ]
+        else:
+            lines += [
+                f"Closest past collaboration: {r['match_name']}"
+                f" in {r['match_domain']} ({r['match_status']})",
+                f"That project: {r['match_project']}",
+            ]
+        lines.append(f"Why that person: {r['match_rationale']}")
+        c = _roster().get((r["match_name"] or "").strip().lower()) or {}
+        if c.get("email"):
+            lines.append(f"Their address: {c['email']}"
+                         + (f" ({c['unit']})" if c.get("unit") else ""))
+        via = ", ".join(f"{p['name']}" + (f" <{p['email']}>" if p.get("email") else "")
+                        for p in (c.get("ncsa_contact") or []) if p.get("name"))
+        if via:
+            lines.append(f"Our people who already know them: {via}")
     # The stored synopsis, not a fresh fetch of the solicitation. Re-fetching
     # here would put a third-party site in a user-facing request path.
     lines += ["", "Synopsis as captured:", (r["synopsis"] or "")[:8000]]

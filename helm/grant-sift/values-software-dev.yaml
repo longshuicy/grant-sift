@@ -32,6 +32,8 @@ roster:
   existingConfigMap: grant-sift-roster
   key: roster.yaml
   mountPath: /app/config/roster.yaml
+  staffKey: ncsa_staff.yaml
+  staffMountPath: /app/config/ncsa_staff.yaml
 
 # Change realm here — issuer becomes {{url}}/realms/{{realm}} for oauth2-proxy.
 keycloak:

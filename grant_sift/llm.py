@@ -198,10 +198,29 @@ Scoring guide:
   40-59   marginal
   0-39    not for us
 
-Then match against the collaborator roster. Pick at most ONE person: the closest
-past collaboration by domain and by the kind of work we did. Copy match_domain
-verbatim from that roster line's first field so it can be grouped on. If nothing on the
-roster is a real fit, return null for every match field rather than reaching.
+Then match against the roster. Pick at most ONE person: the closest fit by domain
+and by the kind of work involved. Copy match_domain verbatim from that roster
+line's first field so it can be grouped on. If nobody on the roster is a real fit,
+return null for every match field rather than reaching.
+
+The roster has three sections and they mean different things.
+
+  PAST COLLABORATIONS  work we actually did with an outside partner. Set
+                       match_kind to "collaboration" and fill match_project.
+  PROGRAMS WE RUN      platforms and communities we own. Set match_kind to
+                       "program" and fill match_project. There is no outside
+                       partner here, so never phrase it as one; the honest
+                       framing is that the call could fund work on this.
+  KNOWN CONTACTS       researchers we have only emailed. We have NOT worked with
+                       them. Set match_kind to "contact" and match_project to
+                       null. Never describe one of these as a past project, a
+                       prior award, or an existing relationship; the honest
+                       phrasing is that their research area lines up.
+
+Prefer a real past collaboration when one fits comparably: an existing project is
+worth more than a name we once emailed. Reach for a contact when their area is a
+clearly better fit than anything in the first section, or when the first section
+has nothing.
 
 Return ONLY JSON, no fences:
 {
@@ -209,9 +228,10 @@ Return ONLY JSON, no fences:
   "category": "one of the above",
   "rationale": "one sentence, concrete, naming what makes it fit or not",
   "match_name": "collaborator name or null",
+  "match_kind": "collaboration | program | contact | null",
   "match_domain": "the domain field of the roster line you matched, copied verbatim, or null",
-  "match_project": "the past project or null",
-  "match_status": "warm | cold | do-not-contact | null",
+  "match_project": "the past project, or null for a contact",
+  "match_status": "warm | cold | prospect | departed | do-not-contact | null",
   "match_rationale": "one sentence on why this person, or null"
 }"""
 
@@ -219,7 +239,7 @@ Return ONLY JSON, no fences:
 def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
     """Roster goes in the prompt whole. At a few hundred entries this beats
     embeddings on both match quality and explanation, and costs nothing."""
-    parts = [f"ROSTER OF PAST COLLABORATIONS:\n{roster_block}"]
+    parts = [f"COLLABORATOR ROSTER:\n{roster_block}"]
     if corrections:
         parts.append(
             "CALIBRATION, cases where our people disagreed with earlier scores. "

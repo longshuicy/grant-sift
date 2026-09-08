@@ -1,42 +1,127 @@
-# Past and current collaborations. This file decides whether Grant Sift is
-# useful.
+# The roster. One entry per PARTY - a person, a team, or an organisation.
 #
-# NOT committed with real data. Copy this file to config/roster.yaml (gitignored)
-# and fill in your group's collaborations:
+# NOT committed with real data. Copy this file to config/roster.yaml
+# (gitignored) and fill in your own:
 #
 #   cp config/roster.example.yaml config/roster.yaml
 #
-# This file is the BASELINE, curated and reviewed on disk / in the cluster.
-# Entries added through the web UI live in the roster_entries table instead and
-# are never written back here.
+# This file decides whether Grant Sift is useful. It is the reviewed baseline,
+# curated on disk, and it is TRUSTED CONTEXT in every model prompt.
 #
-# status: warm | cold | do-not-contact
-#   warm            we would call them tomorrow
-#   cold            real past work, but the relationship has gone quiet
-#   do-not-contact  do not surface, for whatever reason
+# ONE SHAPE, NOT TWO
 #
-# `collaborator` is the DOMAIN partner, the person who needs an RSE and may
-# not know it. Our own staff belong in `notes` as the internal contact, not
-# here, or the matcher will match us to ourselves.
+# `projects` is a list and it may be empty. That is the whole design. A
+# project is not a different kind of record, it is EVIDENCE about a party:
+# someone you have only emailed has zero, someone you co-wrote a proposal
+# with has one or more.
 #
-# Only these fields reach the model: domain, collaborator, project, years,
-# our_role, funders, status, notes. Any other key is silently ignored.
+# Grant Sift used to split these into two files - collaborations here,
+# outreach contacts elsewhere - and it was a mistake. The same person landed
+# in both with contradictory status, so a co-author on a live ARPA-H proposal
+# was labelled "we have never worked with them" on the dashboard. One entry
+# per party makes that unrepresentable.
+#
+# STATUS IS DERIVED, so normally leave it out:
+#   (no projects)              -> prospect   a lead; you have not worked together
+#   a project ongoing/recent   -> warm       you would call them tomorrow
+#   projects, all older        -> cold       real past work, gone quiet
+#
+# Set it by hand ONLY for the two things projects cannot express:
+#   departed        their address is no longer at your institution
+#   do-not-contact  never surfaced; dropped at load time
+#
+# WHO GOES HERE
+#
+# Domain partners: the people who need an RSE and may not know it. YOUR OWN
+# STAFF DO NOT GO HERE. They live in config/ncsa_staff.yaml and are named in
+# `ncsa_contact`; put them in this file and the matcher matches you to
+# yourself.
+#
+# FIELDS
+#   name          required. A person, a team, or an organisation.
+#   email         theirs. Renders as "no address on file" when absent.
+#   unit          department or centre; used for matching when `areas` is empty
+#   org           defaults to UIUC in the dashboard; set it for external parties
+#   areas         research areas. Worth filling: a department alone makes
+#                 everyone in it look identical to the matcher.
+#   ncsa_contact  names of YOUR staff who already know this party. Joined
+#                 against ncsa_staff.yaml, so spelling must match its
+#                 `as_written`.
+#   kind          omit for a normal partner. `program` marks something YOU run
+#                 - a platform, a community, a service - where there is no
+#                 outside party to approach. Those render with the internal
+#                 owner only, and the model is told not to invent a partner.
+#   projects      0..n. Each: title, years, funders, our_role, evidence.
+#   outreach      sent | not-sent
+#   review        a data-quality flag - suspect address, unverified name.
+#                 Shown in the dashboard, never sent to the model.
+#
+# Reaching the model: name, areas, unit, org, status, projects, notes.
+# Dashboard and digests only: email, ncsa_contact, review.
+#
+# Regenerate from an outreach spreadsheet plus this file:
+#   python scripts/build_roster.py
 
-# Replace these placeholders with your real roster before running assess.
+# A party you have worked with: projects present, so status derives to warm.
+- name: A. Researcher
+  email: aresearcher@example.edu
+  unit: Example Department
+  areas: [remote sensing, crop modelling]
+  ncsa_contact: [Your Staffer]
+  projects:
+    - title: Example collaboration, field-scale sensing platform
+      years: 2022-present
+      funders: [NSF]
+      our_role: data platform, ingest pipelines, web visualisation
+      evidence: Projects/example-proposal.pdf
 
-- domain: example domain
-  collaborator: A. Researcher (PI, Example Dept)
-  project: Example collaboration title
-  years: 2022-present
-  our_role: software, data management, workflow support
-  funders: [NSF]
-  status: warm
-  notes: internal contact Your Name; replace this entry
+# Past work that has gone quiet: projects present but old, so status is cold.
+- name: B. Collaborator
+  email: bcollab@example.edu
+  unit: Another Department
+  areas: [science policy]
+  ncsa_contact: []
+  projects:
+    - title: Past project that ended
+      years: 2018-2021
+      funders: [NIH]
+      our_role: web app, data publishing
 
-- domain: another domain
-  collaborator: B. Collaborator (co-PI, Example University)
-  project: Past project that went quiet
-  years: 2018-2021
-  our_role: web app, data publishing
-  funders: [NIH]
-  status: cold
+# A lead: no projects, so status derives to prospect. The model is told
+# explicitly that a match here is a lead, never a past collaboration.
+- name: C. Contact
+  email: ccontact@example.edu
+  unit: Example Department
+  areas: [machine learning, imaging]
+  ncsa_contact: [Your Staffer]
+  outreach: sent
+
+# Something you run yourself. No `email`, because there is nobody outside to
+# write to; `ncsa_contact` is the whole answer, and the card shows only that.
+- name: Example Platform community and framework users
+  kind: program
+  areas: [research data management, software sustainability]
+  ncsa_contact: [Your Staffer]
+  projects:
+    - title: Example Platform, data management for long-tail research data
+      years: 2013-present
+      funders: [NSF]
+      our_role: core platform development, extractor architecture
+
+# A party can be an organisation rather than a person.
+- name: Example Consortium (multi-university)
+  areas: [natural hazards, resilience]
+  projects:
+    - title: Example multi-institution center
+      years: 2015-present
+      funders: [NIST]
+      our_role: platform, backend services, data publishing
+  notes: subaward routes exist here that do not require being on the core award
+
+# Someone who has left. `departed` is one of the two statuses you set by hand.
+- name: D. Emeritus
+  email: demeritus@elsewhere.edu
+  unit: Example Department
+  org: external (elsewhere.edu)
+  status: departed
+  review: non-UIUC address; 'Example Department' is their former unit

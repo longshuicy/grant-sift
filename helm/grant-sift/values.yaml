@@ -114,6 +114,10 @@ roster:
   existingConfigMap: ""
   key: roster.yaml
   mountPath: /app/config/roster.yaml
+  # Optional second key in the same ConfigMap (ncsa_staff.yaml). Resolves
+  # "via us" names on the dashboard.
+  staffKey: ""
+  staffMountPath: /app/config/ncsa_staff.yaml
 
 # Secret env. Leave empty in git; supply via --set, --set-file, or values-secrets.yaml.
 secrets:

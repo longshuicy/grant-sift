@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS assessments (
     category         TEXT,
     rationale        TEXT,
     match_name       TEXT,
+    match_kind       TEXT,            -- collaboration | contact
     match_domain     TEXT,
     match_project    TEXT,
     match_status     TEXT,
@@ -93,6 +95,19 @@ CREATE TABLE IF NOT EXISTS roster_entries (
     created_by   TEXT,
     created_at   TEXT,
     retired      INTEGER DEFAULT 0   -- hidden from the merge without losing it
+);
+
+CREATE TABLE IF NOT EXISTS source_entries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    url          TEXT NOT NULL,
+    kind         TEXT DEFAULT 'page',   -- page | feed
+    cadence      TEXT DEFAULT 'weekly',
+    notes        TEXT,
+    dedup_key    TEXT UNIQUE,           -- normalised URL; the uniqueness guarantee
+    created_by   TEXT,
+    created_at   TEXT,
+    retired      INTEGER DEFAULT 0      -- hidden from ingest without losing it
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -136,9 +151,10 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
         conn.execute("ALTER TABLE opportunities ADD COLUMN screen TEXT")
         conn.commit()
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
-    if "match_domain" not in acols:
-        conn.execute("ALTER TABLE assessments ADD COLUMN match_domain TEXT")
-        conn.commit()
+    for col in ("match_domain", "match_kind"):
+        if col not in acols:
+            conn.execute(f"ALTER TABLE assessments ADD COLUMN {col} TEXT")
+            conn.commit()
     fcols = {r["name"] for r in conn.execute("PRAGMA table_info(feedback)")}
     for col in ("aspect", "created_by"):
         if col not in fcols:
@@ -355,13 +371,14 @@ def unassessed(conn, limit: int = 200):
 def save_assessment(conn, opp_id: str, a: dict, model: str, input_hash: str):
     conn.execute(
         """INSERT OR REPLACE INTO assessments
-           (opportunity_id, score, category, rationale, match_name, match_domain,
-            match_project, match_status, match_rationale, model, input_hash, assessed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+           (opportunity_id, score, category, rationale, match_name, match_kind,
+            match_domain, match_project, match_status, match_rationale, model,
+            input_hash, assessed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             opp_id, a.get("score") if a.get("score") is not None else 0,
             a.get("category") or "not_relevant", a.get("rationale"),
-            a.get("match_name"), a.get("match_domain"),
+            a.get("match_name"), a.get("match_kind"), a.get("match_domain"),
             a.get("match_project"), a.get("match_status"),
             a.get("match_rationale"), model, input_hash, now(),
         ),
@@ -498,33 +515,97 @@ def few_shot_corrections(conn, limit: int = 12, confirmations: int = 3):
 
 
 def roster_additions(conn):
-    """Dashboard-added roster entries, shaped like the YAML ones.
+    """Dashboard-added roster entries, in the roster's own shape.
 
     Merged with config/roster.yaml at assessment time so the model sees one
     roster. Never written back into that file: it is the reviewed baseline and
     carries comments an automated writer would destroy.
+
+    Emitted with a `projects` list like every other party, because that list is
+    what decides which section of the prompt an entry lands in. Returning the
+    old flat shape put a dashboard-added collaboration under "we have NOT
+    worked with them" while its own status said warm.
     """
     out = []
     for r in conn.execute(
-        """SELECT domain, collaborator, project, years, our_role, funders,
-                  status, notes, created_by
+        """SELECT id, domain, collaborator, project, years, our_role, funders,
+                  status, notes, created_by, created_at
            FROM roster_entries WHERE retired = 0 ORDER BY created_at"""
     ):
         origin = ("added via the dashboard by " + r["created_by"]) if r["created_by"] \
                  else "added via the dashboard"
+        projects = []
+        if r["project"]:
+            projects.append({
+                "title": r["project"],
+                "years": r["years"] or "",
+                "our_role": r["our_role"] or "",
+                "funders": [f.strip() for f in (r["funders"] or "").split(",")
+                            if f.strip()],
+            })
         out.append({
-            "domain": r["domain"],
-            "collaborator": r["collaborator"],
-            "project": r["project"] or "",
-            "years": r["years"] or "",
-            "our_role": r["our_role"] or "",
-            "funders": [f.strip() for f in (r["funders"] or "").split(",") if f.strip()],
+            "id": r["id"],
+            "origin": "dashboard",
+            "created_by": r["created_by"],
+            "created_at": r["created_at"],
+            "name": r["collaborator"],
+            "areas": [a.strip() for a in (r["domain"] or "").split(",") if a.strip()],
+            "projects": projects,
+            # An entry with a project would otherwise derive to warm on the
+            # strength of a form nobody has reviewed. Carrying the typed status
+            # keeps `cold` meaningful as "unreviewed".
             "status": r["status"] or "cold",
-            # Origin rides in notes because roster_block renders only the eight
-            # known keys and would silently drop a new one.
             "notes": (r["notes"] + ". " + origin) if r["notes"] else origin,
         })
     return out
+
+
+def _dedup_key(url: str) -> str:
+    """Normalised URL, the thing source uniqueness is actually about.
+
+    Two people adding the same foundation will not type the same string:
+    http vs https, a www, a trailing slash, a tracking query. Comparing raw
+    URLs would let all of those in as separate sources and fetch the page
+    four times a week.
+    """
+    u = (url or "").strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("?")[0].split("#")[0]
+    return u.rstrip("/")
+
+
+def source_additions(conn):
+    """Dashboard-added sources, shaped like the sources.yaml entries."""
+    return [
+        {"id": r["id"], "name": r["name"], "url": r["url"], "kind": r["kind"],
+         "cadence": r["cadence"] or "weekly", "notes": r["notes"],
+         "created_by": r["created_by"], "created_at": r["created_at"],
+         "origin": "dashboard"}
+        for r in conn.execute(
+            """SELECT id, name, url, kind, cadence, notes, created_by, created_at
+               FROM source_entries WHERE retired = 0 ORDER BY created_at""")
+    ]
+
+
+def source_exists(conn, url: str):
+    """The dashboard-added half of the duplicate check. Returns the row or None."""
+    return conn.execute(
+        "SELECT id, name, url, retired FROM source_entries WHERE dedup_key = ?",
+        (_dedup_key(url),)).fetchone()
+
+
+def add_source_entry(conn, entry: dict, created_by=None) -> int:
+    conn.execute(
+        """INSERT INTO source_entries
+             (name, url, kind, cadence, notes, dedup_key, created_by, created_at)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (entry["name"], entry["url"], entry.get("kind") or "page",
+         entry.get("cadence") or "weekly", entry.get("notes"),
+         _dedup_key(entry["url"]), created_by, now()),
+    )
+    conn.commit()
+    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
 
 
 def add_roster_entry(conn, entry: dict, created_by=None) -> int:

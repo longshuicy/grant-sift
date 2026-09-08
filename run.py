@@ -64,13 +64,19 @@ def cmd_assess(conn, args):
 
 
 def cmd_export(conn, args):
-    n = pipeline.export_json(conn, args.out, min_score=args.min_score)
+    # The roster carries the contact details the dashboard renders, so the
+    # export needs it even though scoring is already done.
+    _, roster, _ = pipeline.load_config()
+    n = pipeline.export_json(conn, args.out, min_score=args.min_score,
+                             roster=roster)
     print(f"exported {n} opportunities to {args.out}")
 
 
 def cmd_digest(conn, args):
     stale = db.stale_sources(conn)
-    items = pipeline.build_digest(conn, args.feed, since_days=args.since)
+    _, roster, _ = pipeline.load_config()
+    items = pipeline.build_digest(conn, args.feed, since_days=args.since,
+                                  roster=roster)
     body = pipeline.render_digest(args.feed, items, stale)
     if not body:
         print(f"nothing new for '{args.feed}'")

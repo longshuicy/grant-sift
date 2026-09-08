@@ -15,6 +15,44 @@ import yaml
 from . import adapters, db, llm
 
 
+WARM_WINDOW_YEARS = 4
+
+
+def derive_status(entry):
+    """warm / cold / prospect, computed from `projects`, not typed by hand.
+
+    The roster's whole shape rests on this. A party with no projects is a
+    lead; one with recent work is warm. Because it is derived, nobody can
+    assert a relationship the roster does not evidence - which is what went
+    wrong when contacts and collaborations lived in separate files and the
+    same person appeared in both with different warmth.
+
+    An explicit status wins only for what projects cannot express: that
+    someone has left, or must not be contacted.
+    """
+    explicit = (entry.get("status") or "").strip()
+    if explicit in ("do-not-contact", "departed"):
+        return explicit
+    # A dashboard entry keeps the status that was typed. Deriving it would let
+    # anyone promote themselves into the warm digest by filling in a project
+    # field, and nobody has reviewed what a form produced - which is exactly
+    # why those entries default to cold.
+    if entry.get("origin") == "dashboard" and explicit:
+        return explicit
+    projects = entry.get("projects") or []
+    if not projects:
+        return "prospect"
+    cutoff = date.today().year - WARM_WINDOW_YEARS
+    for pr in projects:
+        years = str(pr.get("years") or "")
+        if "present" in years or years.rstrip().endswith("-"):
+            return "warm"
+        found = [int(y) for y in re.findall(r"((?:19|20)\d{2})", years)]
+        if found and max(found) >= cutoff:
+            return "warm"
+    return "cold"
+
+
 def load_config(config_dir="config"):
     d = Path(config_dir)
     with open(d / "sources.yaml") as f:
@@ -24,14 +62,68 @@ def load_config(config_dir="config"):
         raise FileNotFoundError(
             f"missing roster at {roster_path}. "
             "Copy config/roster.example.yaml to config/roster.yaml "
-            "(gitignored) and fill in your collaborations, or set "
-            "GRANT_SIFT_ROSTER to the path of your roster file."
+            "(gitignored) and fill it in, or set GRANT_SIFT_ROSTER to the "
+            "path of your roster file."
         )
     with open(roster_path) as f:
-        roster = yaml.safe_load(f) or []
+        roster = normalise(yaml.safe_load(f) or [], d)
     with open(d / "prefilter.yaml") as f:
         prefilter = yaml.safe_load(f)
     return sources, roster, prefilter
+
+
+def normalise(entries, d=Path("config")):
+    """One roster shape in, the shape the rest of the pipeline wants out.
+
+    Adds the derived status, resolves `ncsa_contact` names to addresses via
+    ncsa_staff.yaml, and computes `domain`, the field the model copies back
+    and the dashboard groups on. `domain` falls back from research areas to
+    the unit to the name, because a party with none of the first two still
+    has to land in some bucket.
+    """
+    staff = load_staff(d)
+    out = []
+    for e in entries:
+        status = derive_status(e)
+        if status == "do-not-contact":
+            continue
+        areas = e.get("areas") or []
+        unit = e.get("unit") or ""
+        projects = e.get("projects") or []
+        # One short label for grouping / match_domain — not the full Illinois
+        # Experts concept list (those can be 200+ chars and blow up the UI).
+        domain = (areas[0] if areas else unit) or e["name"]
+        out.append({
+            **e,
+            "kind": e.get("kind") or "partner",
+            "collaborator": e["name"],
+            "domain": domain,
+            "status": status,
+            "projects": projects,
+            "unit": unit,
+            "org": e.get("org") or "",
+            # Resolved once here so the export, the digests and the chat all
+            # get the same addresses instead of each re-implementing the join.
+            "ncsa_contact": [
+                {"name": staff.get(n, {}).get("name", n),
+                 "email": staff.get(n, {}).get("email")}
+                for n in (e.get("ncsa_contact") or [])
+            ],
+        })
+    return out
+
+
+def load_staff(d=Path("config")):
+    """Our own people, keyed by the spelling `ncsa_contact` uses.
+
+    Deliberately NOT part of the roster: this is us, and a roster line naming
+    our own staff as the domain partner makes the matcher match us to
+    ourselves.
+    """
+    path = Path(d) / "ncsa_staff.yaml"
+    if not path.is_file():
+        return {}
+    return {s["as_written"]: s for s in (yaml.safe_load(path.read_text()) or [])}
 
 
 # --------------------------------------------------------------------------
@@ -148,9 +240,43 @@ def _enrich(conn, rec, stats, verbose):
         conn.commit()
 
 
+def merge_sources(sources, conn, verbose=True):
+    """config/sources.yaml plus anything added through the dashboard.
+
+    The same arrangement as the roster: the YAML is the reviewed baseline and
+    is never written back to, dashboard additions live in `source_entries`,
+    and the two are merged at ingest time so there is one list of sources.
+
+    Duplicates are dropped here as well as at the API, because the YAML can
+    gain a source that someone had already added through the form. Without
+    this the page would be fetched twice a week under two names, and each
+    would independently report itself healthy.
+    """
+    merged = dict(sources)
+    have = {db._dedup_key(p.get("url", ""))
+            for key in ("foundations", "feeds")
+            for p in (sources.get(key) or [])}
+    added = {"foundations": [], "feeds": []}
+    for entry in db.source_additions(conn):
+        k = db._dedup_key(entry["url"])
+        if k in have:
+            continue
+        have.add(k)
+        bucket = "feeds" if entry.get("kind") == "feed" else "foundations"
+        added[bucket].append(entry)
+    for bucket, extra in added.items():
+        if extra:
+            merged[bucket] = list(merged.get(bucket) or []) + extra
+    n = sum(len(v) for v in added.values())
+    if verbose and n:
+        print(f"  sources: {n} added via the dashboard", flush=True)
+    return merged
+
+
 def ingest(conn, sources, prefilter, verbose=True):
     stats = {"fetched": 0, "kept": 0, "new": 0, "enriched": 0,
              "detail_cached": 0, "detail_failed": 0, "expired": 0, "pruned": 0}
+    sources = merge_sources(sources, conn, verbose)
     kw = sources.get("keywords", [])
 
     def run(name, kind, url, fn):
@@ -234,16 +360,115 @@ def _due(conn, page):
 # Assess
 # --------------------------------------------------------------------------
 
+def _scrub_notes(notes, staff_names):
+    """Take our own people out of a note before the model reads it.
+
+    Notes carry lines like "internal contact Luigi Marini. Our most reusable
+    asset...". That name is for the dashboard, but the model saw it sitting on
+    a roster line and reported Luigi - one of OUR staff - as the collaborator
+    to approach, on 7 records before this was caught. The roster's oldest rule
+    is that our staff are not parties; this is the leak that got around it.
+
+    The strategy prose in these notes is worth keeping, so the clause is cut
+    rather than the whole note, and any staff name still standing is replaced
+    instead of removed so the sentence still reads.
+    """
+    if not notes:
+        return ""
+    out = re.sub(r"internal contact[^.;]*[.;]?\s*", "", notes, flags=re.I)
+    for name in staff_names:
+        out = re.sub(rf"\b{re.escape(name)}\b", "our team", out)
+    return out.strip()
+
+
 def roster_block(roster):
+    """Render the roster for the prompt, split by whether we have worked together.
+
+    Same file, two sections, because the sections mean different things and
+    the model must not confuse them. A party with projects is evidence of work
+    we did. A party without is a name and a research area - and rendering it
+    in the same shape, with an empty project field, invites the model to fill
+    that blank in and report a collaboration that never happened.
+    """
+    programs = [e for e in roster if e.get("kind") == "program"]
+    collabs = [e for e in roster
+               if e.get("projects") and e.get("kind") != "program"]
+    contacts = [e for e in roster
+                if not e.get("projects") and e.get("kind") != "program"]
+    staff = load_staff()
+    staff_names = sorted(
+        {s["name"] for s in staff.values() if s.get("name")}
+        | {k for k in staff if k},
+        key=len, reverse=True)      # longest first, so full names go before parts
+
     lines = []
-    for e in roster:
-        lines.append(
-            f"- {e['domain']} | {e['collaborator']} | {e.get('project','')} | "
-            f"our role: {e.get('our_role','')} | {e.get('years','')} | "
-            f"funders: {', '.join(e.get('funders', []))} | status: {e.get('status','cold')}"
-            + (f" | {e['notes']}" if e.get("notes") else "")
-        )
+    if contacts:
+        lines.append("PAST COLLABORATIONS (work we actually did):")
+    for e in collabs:
+        for pr in e["projects"]:
+            lines.append(
+                f"- {e['domain']} | {e['collaborator']} | {pr.get('title','')} | "
+                f"our role: {pr.get('our_role','')} | {pr.get('years','')} | "
+                f"funders: {', '.join(pr.get('funders') or [])} | "
+                f"status: {e.get('status','cold')}"
+                + (f" | {_scrub_notes(e['notes'], staff_names)}"
+                   if _scrub_notes(e.get("notes"), staff_names) else "")
+            )
+    if programs:
+        lines += [
+            "",
+            "PROGRAMS AND PLATFORMS WE RUN OURSELVES (a match here means the "
+            "call could fund work on something we already own; there is NO "
+            "outside partner to approach, so do not describe one):",
+        ]
+        for e in programs:
+            for pr in (e.get("projects") or [{}]):
+                lines.append(
+                    f"- {e['domain']} | {e['collaborator']} | {pr.get('title','')} | "
+                    f"our role: {pr.get('our_role','')} | {pr.get('years','')} | "
+                    f"funders: {', '.join(pr.get('funders') or [])}"
+                    + (f" | {_scrub_notes(e['notes'], staff_names)}"
+                       if _scrub_notes(e.get("notes"), staff_names) else ""))
+    if contacts:
+        lines += [
+            "",
+            "KNOWN CONTACTS (researchers we have emailed; we have NOT worked "
+            "with them, and nothing here is a past project):",
+        ]
+        for e in contacts:
+            unit = (f" | {e['unit']}"
+                    if e.get("unit") and e["unit"] != e.get("domain") else "")
+            org = f" | {e['org']}" if e.get("org") and e["org"] != "UIUC" else ""
+            lines.append(
+                f"- {e['domain']} | {e['collaborator']}{unit}{org} "
+                f"| status: {e.get('status', 'prospect')}"
+            )
     return "\n".join(lines)
+
+
+_EMPTYISH = {"", "null", "none", "n/a", "na", "nil", "unknown"}
+
+
+def _clean_match(result):
+    """Drop a match that names nobody.
+
+    Two ways the model gets this wrong, both seen in real output: it writes the
+    string "null" where the schema asks for JSON null, and it fills in
+    match_kind while leaving match_name empty - a kind with nothing to apply it
+    to. Either way there is no match, so every match_* field goes, together.
+    Leaving match_kind set on a nameless row means the dashboard filters and
+    counts a match that no card can ever show.
+    """
+    name = (result.get("match_name") or "").strip()
+    if name.lower() in _EMPTYISH:
+        for f in ("match_name", "match_kind", "match_domain", "match_project",
+                  "match_status", "match_rationale"):
+            result[f] = None
+    else:
+        for f in ("match_kind", "match_domain", "match_project", "match_status"):
+            if (result.get(f) or "").strip().lower() in _EMPTYISH:
+                result[f] = None
+    return result
 
 
 def _resolve_domain(result, roster):
@@ -284,7 +509,9 @@ def assess_new(conn, roster, limit=200, verbose=True):
     # config/roster.yaml is the baseline; dashboard additions live in the
     # database. Merged here so the model sees one roster, never merged back
     # into the YAML.
-    additions = db.roster_additions(conn)
+    # Normalised the same way as the file entries: roster_block reads `domain`
+    # and `collaborator`, which normalise() computes.
+    additions = normalise(db.roster_additions(conn))
     block = roster_block(list(roster) + additions)
     if verbose and additions:
         print(f"  roster: {len(roster)} from config plus "
@@ -308,7 +535,7 @@ def assess_new(conn, roster, limit=200, verbose=True):
                 if verbose:
                     print(f"  assess failed for {opp['id']}: {str(exc)[:80]}", flush=True)
                 continue
-            result = _resolve_domain(result, roster)
+            result = _resolve_domain(_clean_match(result), roster)
             db.save_assessment(conn, opp["id"], result, llm.MODEL,
                                db.hash_text(opp["title"], opp.get("synopsis")))
             done += 1
@@ -330,18 +557,99 @@ def assess_new(conn, roster, limit=200, verbose=True):
 # Export, the dashboard is a static file reading this
 # --------------------------------------------------------------------------
 
-def export_json(conn, path="web/opportunities.json", min_score=40):
+def contact_index(roster):
+    """collaborator name -> how to reach them, both ends of the introduction.
+
+    The dashboard's job is to get someone to send an email, and a name alone
+    does not do that: it leaves the reader to guess an address, or to ask
+    around for which of our people already knows them. Both are on the roster
+    already, so both are exported.
+
+    Takes an ALREADY-NORMALISED roster (load_config output), so ncsa_contact
+    is resolved to addresses and status is derived.
+    """
+    idx = {}
+    for e in roster:
+        name = (e.get("collaborator") or e.get("name") or "").strip()
+        if not name:
+            continue
+        internal = [c for c in (e.get("ncsa_contact") or []) if c.get("name")]
+        if not internal and e.get("notes"):
+            # Entries carried over from the old roster name our person in
+            # prose - "internal contact Jong Lee (task lead)". Name parts must
+            # not end in a period, or "Luigi Marini. Our people" reads as a
+            # three-word name.
+            m = re.search(
+                r"internal contact ((?:[A-Z][a-zA-Z'-]+)(?: [A-Z][a-zA-Z'-]+)+)",
+                e["notes"])
+            if m:
+                staff = load_staff()
+                by_name = {v["name"].lower(): v for v in staff.values()}
+                by_name.update({k.lower(): v for k, v in staff.items()})
+                hit = by_name.get(m.group(1).lower(), {})
+                internal = [{"name": hit.get("name", m.group(1)),
+                             "email": hit.get("email")}]
+        entry = {
+            "kind": ("program" if e.get("kind") == "program"
+                     else "collaboration" if e.get("projects") else "contact"),
+            "email": e.get("email"),
+            "unit": e.get("unit"),
+            "org": e.get("org"),
+            "outreach": e.get("outreach"),
+            "ncsa_contact": internal,
+            "review": e.get("review"),
+        }
+        idx[name.lower()] = entry
+        # ALIASES. The join from an assessment back to a party is on the name
+        # the MODEL returned, and the model shortens: it answers "Praveen
+        # Kumar" for the party "Praveen Kumar (PI, Civil and Environmental
+        # Engineering, University of Illinois)", and "Clowder Framework" - a
+        # project title - for the Clowder community. An exact-match lookup
+        # drops the contact block on those rows silently, which is how a card
+        # ends up with a match and no way to act on it. Aliases are only added
+        # where they are free, so a real party name always wins.
+        for alias in _aliases(name, e):
+            idx.setdefault(alias, entry)
+    return idx
+
+
+_LEADING = re.compile(r"^([A-Z][\w.'-]+(?: [A-Z][\w.'-]+){1,3})(?:\s*[(,;]| and | with )")
+
+
+def _aliases(name, entry):
+    out = []
+    m = _LEADING.match(name.strip())
+    if m:
+        out.append(m.group(1).lower())
+    # The name with its trailing parenthetical dropped. The model returns
+    # "TERRA-REF consortium" for the party "TERRA-REF consortium (energy
+    # sorghum breeding and remote sensing teams)", which no personal-name or
+    # project-title alias covers.
+    if "(" in name:
+        out.append(name.split("(")[0].strip().lower())
+    for pr in entry.get("projects") or []:
+        title = (pr.get("title") or "").strip()
+        if title:
+            out.append(title.lower())
+            # Project titles are written "Name, what it does"; the model
+            # usually returns just the name.
+            out.append(title.split(",")[0].strip().lower())
+    return [a for a in out if a and a != name.lower()]
+
+
+def export_json(conn, path="web/opportunities.json", min_score=40, roster=None):
     rows = conn.execute(
         """SELECT o.id, o.source, o.title, o.synopsis, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
                   a.score, a.category, a.rationale,
-                  a.match_name, a.match_domain, a.match_project, a.match_status,
-                  a.match_rationale
+                  a.match_name, a.match_kind, a.match_domain, a.match_project,
+                  a.match_status, a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
            WHERE a.score >= ?
            ORDER BY (o.deadline IS NULL), o.deadline ASC, a.score DESC""",
         (min_score,),
     ).fetchall()
+    contacts = contact_index(roster or [])
 
     # Shipped with the data so a recorded verdict shows up on the dashboard at
     # once, without waiting for the record to be re-scored.
@@ -354,6 +662,7 @@ def export_json(conn, path="web/opportunities.json", min_score=40):
             {k: r[k] for k in r.keys()}
             | {"synopsis": (r["synopsis"] or "")[:900]}
             | {"human": verdicts.get(r["id"])}
+            | {"contact": contacts.get((r["match_name"] or "").strip().lower())}
             for r in rows
         ],
     }
@@ -414,9 +723,9 @@ def _within(deadline, days):
         return False
 
 
-def build_digest(conn, feed, since_days=7, respect_sent_log=True):
+def build_digest(conn, feed, since_days=7, respect_sent_log=True, roster=None):
     rows = conn.execute(
-        """SELECT o.*, a.score, a.category, a.rationale, a.match_name,
+        """SELECT o.*, a.score, a.category, a.rationale, a.match_name, a.match_kind,
                   a.match_domain, a.match_project, a.match_status, a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
            WHERE o.first_seen >= date('now', ?)
@@ -426,6 +735,7 @@ def build_digest(conn, feed, since_days=7, respect_sent_log=True):
 
     test = FEEDS[feed]
     verdicts = db.human_verdicts(conn)
+    contacts = contact_index(roster or [])
     items = []
     for r in rows:
         if not test(r):
@@ -436,7 +746,9 @@ def build_digest(conn, feed, since_days=7, respect_sent_log=True):
             "SELECT 1 FROM sent_log WHERE feed=? AND opportunity_id=?", (feed, r["id"])
         ).fetchone():
             continue
-        items.append(dict(r))
+        it = dict(r)
+        it["contact"] = contacts.get((r["match_name"] or "").strip().lower())
+        items.append(it)
     return items
 
 
@@ -458,8 +770,22 @@ def render_digest(feed, items, stale):
         lines.append(f"    {it['rationale']}")
         if it.get("match_name"):
             area = f" [{it['match_domain']}]" if it.get("match_domain") else ""
+            what = (it.get("match_project")
+                    or ("outreach contact, no project with us yet"
+                        if it.get("match_kind") == "contact" else ""))
             lines.append(f"    closest fit: {it['match_name']}{area}, "
-                         f"{it.get('match_project','')} ({it.get('match_status','')})")
+                         f"{what} ({it.get('match_status','')})")
+            # A digest is read on a phone, away from the dashboard. Without the
+            # addresses the reader has to go and look them up, which is where
+            # the follow-up dies.
+            c = it.get("contact") or {}
+            if c.get("email"):
+                lines.append(f"      reach them: {c['email']}")
+            via = ", ".join(
+                f"{p['name']}" + (f" <{p['email']}>" if p.get("email") else "")
+                for p in (c.get("ncsa_contact") or []) if p.get("name"))
+            if via:
+                lines.append(f"      via us: {via}")
         lines.append(f"    {it['url']}")
         lines.append("")
     return "\n".join(lines)

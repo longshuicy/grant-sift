@@ -2,7 +2,7 @@
 # if it is not in this file, it is not fetched.
 
 # QUERY terms, not filter terms. Each one costs a separate Grants.gov POST and
-# NSF GET, and each is capped at `rows` results (200 / 100). A term broad enough
+# is capped at `rows` results (200). A term broad enough
 # to exceed that cap is silently truncated, which is the "reports success while
 # going incomplete" failure this tool exists to avoid. So keep these specific and
 # discriminating, and put the loose vocabulary in prefilter.yaml instead, where a
@@ -63,8 +63,20 @@ grants_gov:
   # Leave empty for all agencies. Narrow it once you see the volume.
   agencies: []
 
+# DISABLED 2026-09-08. NSF retired the publicationsapi/fundingSearch endpoint;
+# it now answers 200 with a 128-byte meta-refresh to /awardsearch/simple-search,
+# so the adapter parsed nothing, returned an empty list, and was recorded as a
+# SUCCESS with zero yield - four runs in a row. The zero_streak check caught it
+# and flagged the source stale, which is the machinery working; the adapter is
+# what is broken.
+#
+# Not replaced, because nothing is lost: Grants.gov already carries NSF, and
+# 132 NSF-funded records reach us that way. A permanently red source trains
+# people to ignore the stale banner, which is the one thing that banner cannot
+# afford. Re-enable only with an adapter written against whatever NSF exposes
+# now, and confirm a non-zero yield before trusting it.
 nsf:
-  enabled: true
+  enabled: false
 
 feeds:
   # CURIOSS moved to foundations: below -- it publishes no RSS feed, so the

@@ -15,7 +15,8 @@ will need a partner and does not yet know it.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env          # then add your Lumen project key
-cp config/roster.example.yaml config/roster.yaml   # fill in real collaborations (gitignored)
+cp config/roster.example.yaml config/roster.yaml            # collaborators and leads (gitignored)
+cp config/ncsa_staff.example.yaml config/ncsa_staff.yaml   # optional: your staff's addresses
 set -a; source .env; set +a
 
 python run.py daily           # ingest, assess, export, digest
@@ -26,11 +27,14 @@ The gateway defaults to NCSA Lumen with `gemma-4-31b-it`, so the key is the
 only required secret. Override `GRANT_SIFT_LLM_BASE_URL` for any other
 OpenAI-compatible gateway.
 
-`config/roster.yaml` is **not in git** — it names real collaborators and
-relationship status. Only `config/roster.example.yaml` is tracked. Copy it,
-edit it, and keep it local (or mount it in Kubernetes as a ConfigMap). If this
-repo was ever public or shared with the real roster committed, scrub history
-before relying on “gitignored now” — old commits still contain it.
+`config/roster.yaml` and `config/ncsa_staff.yaml` are **not in git** — between
+them they name real collaborators, their relationship status, and colleagues'
+email addresses. `Projects/` is ignored too: it holds real proposal text and
+must never reach a commit or a container image. Only the `.example.yaml` files
+are tracked. Copy them, edit them, and keep them local (or mount them in Kubernetes
+as ConfigMaps). If this repo was ever public or shared with the real files
+committed, scrub history before relying on “gitignored now” — old commits still
+contain them.
 
 ## Commands
 
@@ -61,18 +65,28 @@ itself:
 
 ```mermaid
 flowchart TD
+    SRC["config/sources.yaml<br/>reviewed baseline"] --> SL
+    SRC2["source_entries<br/>added in the dashboard"] --> SL
+    SL{{"source list<br/>merged at ingest, deduplicated on URL"}}
+    SL --> A1
+    SL --> A2
+    SL --> A3
+    SL --> A4
     A1["Grants.gov search2<br/>31 query terms"] --> E
     A2["NSF funding search"] --> E
     A3["RSS feed"] --> SC
-    A4["16 foundation pages<br/>stripped to text"] --> X
+    A4["foundation pages<br/>stripped to text"] --> X
     X["EXTRACT<br/>model lists the open calls"] --> SC
     E["ENRICH<br/>per-call detail fetch:<br/>description, award, deadline"] --> SC
     SC["SCREEN<br/>annotates only.<br/>Discards nothing"] --> S[("SQLite")]
     S --> AS["ASSESS<br/>one call per record:<br/>score, category, roster match"]
-    R1["config/roster.yaml<br/>reviewed baseline"] --> AS
+    R1["config/roster.yaml<br/>parties, projects optional"] --> AS
     R2["roster_entries<br/>added in the dashboard"] --> AS
+    R3["config/ncsa_staff.yaml<br/>our addresses"] --> R1
+    P["Projects/<br/>proposals, gitignored"] -.->|"build_roster.py"| R1
     AS --> S
     S --> J["web/opportunities.json"] --> D["dashboard"]
+    R1 -.->|"who to email, and via whom"| J
     S --> G["five email digests"]
     D --> F["FEEDBACK<br/>what was wrong:<br/>score, category or match"]
     F --> S
@@ -145,22 +159,178 @@ cannot crowd out the rest; ordered by how far apart the model and reviewer were
 rather than by recency; and includes a few confirmations, because agreement
 used to be discarded, which made most clicks no-ops.
 
-## Roster: baseline plus additions
+## Roster: one shape, projects optional
 
-`config/roster.yaml` is the reviewed baseline and is **gitignored** (only
-`config/roster.example.yaml` is tracked). Entries added in the dashboard go to
-the `roster_entries` table and are **never written back to that file**.
+**`config/roster.yaml`** is the whole roster. One entry per **party** — a
+person, a team, or an organisation — and `projects` is a list that may be
+empty. That is the entire design.
 
-The two are merged at assessment time, so the model sees one roster. Dashboard
-entries default to `cold`, since nothing typed into a form has been reviewed.
+A project is not a different kind of record, it is *evidence about* a party.
+Grant Sift previously split these into two files, collaborations in one and
+outreach contacts in the other, and the split was wrong: the same person
+landed in both with contradictory status, so a co-author on a live ARPA-H
+proposal was labelled *"we have never worked with them"* on the dashboard. One
+entry per party makes that unrepresentable.
 
-A new entry cannot retroactively match calls already scored. `assess --rematch`
-clears assessments that matched nobody, which is the cheap subset worth
-redoing.
+`status` is **derived** from `projects` and should normally be absent:
 
-The roster is **trusted context in every prompt**, more so than a feedback
-note, and it is already most of each prompt's input. Keep the real file off
-git, and keep the deployed app off the open internet.
+| projects | status | meaning |
+| --- | --- | --- |
+| none | `prospect` | a lead; you have not worked together |
+| ongoing or recent | `warm` | you would call them tomorrow |
+| all older than four years | `cold` | real past work, gone quiet |
+
+Set it by hand only for the two things projects cannot express: `departed`
+(their address has moved on) and `do-not-contact` (dropped at load time).
+Because warmth is computed, nobody can assert a relationship the roster does
+not evidence.
+
+### Three kinds of match
+
+The model sees the roster in three labelled sections, and records which one it
+matched in `match_kind`:
+
+| section | `kind` | `match_kind` | what the dashboard shows |
+| --- | --- | --- | --- |
+| PAST COLLABORATIONS | *(default)* | `collaboration` | them + via us |
+| PROGRAMS WE RUN | `program` | `program` | via us only, badged *our own program* |
+| KNOWN CONTACTS | *(default, no projects)* | `contact` | them + via us, badged *lead, not a past project* |
+
+`kind: program` exists because roughly a third of the roster is not a partner
+at all: Clowder, Ergo, Brown Dog, EarthCube, the NDS Labs Workbench. There is
+nobody outside to introduce yourself to, and rendering them like partners
+produced cards reading *"reach out to Luigi Marini, via us: Luigi Marini"* —
+Luigi being NCSA staff and the platform's lead at once. A program card drops
+the outward row entirely and shows only who here owns it.
+
+**Our own staff never reach the model.** `notes` fields carry lines like
+`internal contact Luigi Marini`, and the model duly reported him as the
+collaborator to approach on 7 records before this was caught. `roster_block`
+now strips the `internal contact …` clause and replaces any remaining staff
+name with "our team" before the prompt is built, keeping the strategy prose
+while removing the names. The rule the roster has always stated — our staff
+are not parties — needed enforcing in code, not just in a comment.
+
+### Where "them" and "via us" come from
+
+Neither is stored. `assessments` holds no address of any kind — only
+`match_name` and the other `match_*` fields. Contact details are joined on at
+**export time**: `pipeline.contact_index()` builds a lookup from the roster
+plus `ncsa_staff.yaml`, and `export_json` attaches the matching record to each
+opportunity as `contact`, which is what the dashboard and the digests render.
+
+The useful consequence: fixing an address in `config/roster.yaml` and re-running
+`python run.py export` corrects every affected card at once. No re-assessment,
+no model call.
+
+The fragile part is the join key, which is the name the *model* returned. It
+shortens: "Praveen Kumar" for the party `Praveen Kumar (PI, Civil and
+Environmental Engineering, University of Illinois)`, and "Clowder Framework" —
+a project title — for the Clowder community. An exact-match lookup dropped the
+contact block on about one matched row in eight, silently, leaving a card with
+a match and no way to act on it. `contact_index` therefore also registers
+aliases for each party's leading personal name and each of its project titles,
+added only where the key is free so a real party name always wins.
+
+**`config/ncsa_staff.yaml`** stays separate on purpose. It is *us*, not
+*them*: it maps the names in `ncsa_contact` to real addresses so the dashboard
+shows both ends of an introduction. Put your own staff in the roster and the
+matcher starts matching you to yourself. Take these addresses from your
+directory rather than guessing netids — ours were not guessable.
+
+### Browsing and adding, from the dashboard
+
+The dashboard has two panels, **Roster** and **Sources**, both behind auth.
+
+Each opens onto a searchable list rather than a form. That is deliberate: a
+write-only form is one people fill in twice, because without seeing that
+someone is already on the roster the reasonable thing to do is add them again.
+The roster list shows status, unit, research areas, projects with years, the
+collaborator's address and which of your staff already knows them. The sources
+list shows every source with its health inline — last success, records kept,
+and a `stale` flag — because a source that quietly stops yielding is the
+failure this tool exists to catch.
+
+| | endpoint |
+| --- | --- |
+| browse the whole roster | `GET /api/roster` |
+| add a collaborator | `POST /api/roster` |
+| stop using a dashboard entry | `POST /api/roster/{id}/retire` |
+| browse sources with health | `GET /api/sources` |
+| add a funder page or feed | `POST /api/sources` |
+| stop reading an added source | `POST /api/sources/{id}/retire` |
+
+**Everything added this way lands in the next cycle.** Sources are merged with
+`config/sources.yaml` at ingest; roster entries are merged with
+`config/roster.yaml` at assess. Neither file is ever written back to. A new
+roster entry cannot retroactively match calls already scored — `assess
+--rematch` is for that.
+
+**Source deduplication** is on a normalised URL: scheme, `www.`, case, query
+string and trailing slash are all stripped before comparing, and the check
+covers the YAML baseline as well as previous additions. Two people will not
+type the same URL for the same funder, and without this each spelling would
+become its own source, fetched on its own cadence, each reporting itself
+healthy. A duplicate *name* under a different URL is allowed but flagged in the
+response, since one funder can legitimately have two pages worth reading.
+
+Added URLs are fetched server-side by a background job, so `POST /api/sources`
+validates the host: http(s) only, a public hostname required, and loopback,
+private, link-local and cloud-metadata addresses refused. Without that, "add a
+source" is an SSRF primitive.
+
+**The `roster_entries` table** holds entries added in the dashboard. They are
+**never** written back to the file, and default to `cold` since nothing typed
+into a form has been reviewed. A new entry cannot retroactively match calls
+already scored; `assess --rematch` clears assessments that matched nobody,
+which is the cheap subset worth redoing.
+
+### Building the roster
+
+```bash
+python scripts/build_contacts.py outreach.tsv config/contacts.yaml  # import a sheet
+python scripts/crawl_areas.py resolve config/roster.yaml            # match names offline
+python scripts/crawl_areas.py crawl   config/roster.yaml            # ~5s/person, resumable
+python scripts/build_roster.py                                      # merge everything
+```
+
+`build_contacts.py` turns an outreach spreadsheet into roster entries. It only
+auto-corrects a misspelled name when the email netid corroborates it, and
+flags everything else in `review` rather than guessing. Its output is a
+transient artefact: `build_roster.py` merges it in, and you can delete it.
+
+`crawl_areas.py` fills `areas` from Illinois Experts, because a department
+alone makes everyone in it look identical to the matcher. It honours the
+site's `Crawl-Delay: 5`, caches under `.cache/`, takes a lock so two runs
+cannot corrupt the file, and rejects any profile whose surname does not match
+the person it looked up.
+
+`build_roster.py` merges collaborations, imported contacts and projects read
+out of `Projects/` into the single file, deduplicating on surname plus first
+initial. It is idempotent.
+
+Two tables in it carry knowledge no script can derive. `PROMOTIONS` holds
+projects transcribed from `Projects/`. `SECOND_PASS` holds partners supplied by
+someone who knows the work, keyed on a distinctive fragment of the party name,
+and can `merge_into` an existing person, set a `partner`, mark a `kind`, or add
+`ncsa_contact` names. Dedup deliberately refuses to surname-match a compound
+name such as `M. S. Poole (PI, Communication), with D. Forsyth and M.
+Hasegawa-Johnson` — its last token is a third person's surname, and keying on
+it merged that collaboration into Mark Hasegawa-Johnson's record. Only the
+*leading* name in such a string is safe to match on.
+
+### Reading proposals out of `Projects/`
+
+`Projects/` is gitignored and dockerignored: it holds real proposal text.
+Evidence extracted from it goes in `PROMOTIONS` in `scripts/build_roster.py`,
+transcribed by hand and **only** where the relationship is stated in prose.
+
+This matters more than it sounds. NSF proposals embed a *Collaborators & Other
+Affiliations* table listing everyone a PI has ever co-authored with — DeCODER's
+runs to 311 pages — and matching roster names against proposal text suggested
+63 collaborations that do not exist. A COA row means two people share a paper,
+not that this group did work for them. Anything automated here must skip those
+tables or it will invent dozens of relationships.
 
 ## Auth
 
@@ -333,9 +503,25 @@ Stale sources appear at the top of every digest, in a dashboard banner, and in
 
 ## Cost
 
-There is no prompt caching on Lumen, verified: an identical prefix on a repeat
-call reports zero cached tokens. So the roster, most of each prompt, is paid
-for on every call. Two settings dominate the bill:
+**Prompt caching on Lumen: yes for speed, no for billing.** Measured with an
+identical 12,704-token prompt, once with a shared roster prefix and once with
+the roster lines shuffled so no prefix could be reused:
+
+| | median latency |
+| --- | --- |
+| shared roster prefix | **1.21s** |
+| novel prefix | 3.41s |
+
+vLLM automatic prefix caching is on, and it is worth 2.8x. What it is not
+worth is money: `prompt_tokens_details` comes back `null` and repeated
+prefixes still bill every token. Nothing client-side changes that.
+
+This is why `llm.assess()` puts the roster FIRST in the user message and keeps
+it byte-identical across calls. Move the opportunity text ahead of it, or make
+the roster vary per call, and the 2.8x quietly disappears.
+
+So the roster, most of each prompt, is paid for on every call. Two settings
+dominate the bill:
 
 **Thinking off** (`GRANT_SIFT_LLM_THINKING=off`, the default). Reasoning is
 billed as output and this task does not need it. On glm-5.2 it cut completion
@@ -343,6 +529,26 @@ tokens from about 1,350 to 180 with identical scores. It also fixes a real
 failure: reasoning counts against `max_tokens`, so at the old budget of 800 the
 model spent the whole allowance thinking, returned empty content, and every
 record scored 0.
+
+**Roster size.** Measured on `gemma-4-31b-it`, thinking off:
+
+| | 49-entry roster | 286-party roster |
+| --- | --- | --- |
+| prompt tokens per record | 5,847 | **13,178** |
+| completion tokens | ~190 | ~170 |
+| | 1.0x | **2.25x** |
+
+Of the 13,178, the roster is 11,417 (38 tokens per line over 299 lines) and
+the system prompt plus the opportunity is a fixed 1,761. Scaling the benchmark
+below, a full pass over 1,257 records costs roughly **2.6 coins** against 1.2
+before, and steady state at a few new postings a day is about **0.6 coins a
+month**. `db.unassessed()` only scores records that have no assessment, so a
+roster change does not re-price the corpus; you pay the multiplier on new
+postings and on an explicit re-assess.
+
+If that ever stops being acceptable, the lever is the roster, not the model:
+sending only the ~25 most relevant lines per opportunity would be ~2,716
+tokens, cheaper than the original 49-entry roster ever was.
 
 **Model choice**, benchmarked on real records from this pipeline, thinking off,
 cost for a full 597-record pass in Lumen coins:

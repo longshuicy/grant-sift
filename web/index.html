@@ -43,11 +43,16 @@
   .stat i { font-style: normal; font-size: 12.5px; color: var(--ink-soft); }
   .stat.warn b { color: var(--ember); }
 
+  /* Sits inside the strip, so it lands above the rule rather than pushing the
+     list down. Muted on purpose: this is a standing caveat about coverage, not
+     an emergency, and an alarm-coloured band that is always on gets ignored -
+     which is the one thing a staleness warning cannot afford. */
+  .strip #alarm { flex: 1 1 100%; }
   .alarm {
-    margin-top: 16px; padding: 11px 14px;
-    background: #f6ece8; border-left: 3px solid var(--ember);
-    font-size: 13.5px; color: #6d2b18;
+    margin: 12px 0 0; padding: 7px 0 0; border-top: 1px solid var(--rule);
+    font-size: 12.5px; color: var(--ink-faint);
   }
+  .alarm b { font-weight: 600; color: var(--ink-soft); }
 
   /* ---- controls ---- */
   .controls {
@@ -69,7 +74,9 @@
   }
   .chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
   .sortsel { padding: 8px 10px; font: inherit; font-size: 13.5px;
+             max-width: 220px;
              background: var(--card); border: 1px solid var(--rule); border-radius: 3px; }
+  #area { max-width: 200px; }
   .tally { font-size: 13px; color: var(--ink-faint); padding: 6px 0 14px; }
 
   /* ---- the list: an agenda, not cards ---- */
@@ -85,7 +92,7 @@
   .when .rolling { font-size: 13px; color: var(--ink-faint); font-family: var(--sans); }
 
   h2.title { font-family: var(--serif); font-size: 19.5px; font-weight: 600;
-             margin: 0 0 5px; line-height: 1.3; max-width: 66ch; }
+             margin: 0 0 5px; line-height: 1.3; }
   h2.title a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--rule); }
   h2.title a:hover { border-bottom-color: var(--ink); }
 
@@ -93,22 +100,81 @@
   .meta em { font-style: normal; color: var(--ink-faint); }
   .cap { color: var(--ember); }
 
-  .why { max-width: 72ch; margin: 0 0 10px; }
+  .why { margin: 0 0 10px; }
 
   .fit {
-    max-width: 72ch; padding: 9px 12px; background: var(--card);
+    padding: 9px 12px; background: var(--card);
     border-left: 2px solid var(--moss); font-size: 13.5px; color: var(--ink-soft);
   }
   .fit b { color: var(--moss); font-weight: 600; }
+  .fit a { text-decoration: none; }
+  .fit a:hover b { text-decoration: underline; }
   .fit .cold { color: var(--ink-faint); font-weight: 400; }
+
+  /* Who to email, and who here already knows them. A match is only useful if
+     it ends in a message being sent, so both addresses are one click away. */
+  .reach { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--rule);
+           font-size: 12.5px; line-height: 1.75; }
+  .reach div { display: flex; gap: 6px; }
+  .reach .who { color: var(--ink-faint); flex: 0 0 5.5em; }
+  .reach a { color: var(--moss); text-decoration: none; }
+  .reach a:hover { text-decoration: underline; }
+  .reach .noaddr { color: var(--ink-faint); font-style: italic; }
+  .reach .addr { color: var(--ink-soft); font-size: 12px; }
+  .reach .addr:hover { color: var(--moss); }
+  .lead { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px;
+          font-size: 11px; color: var(--ember); border: 1px solid var(--ember); }
+  .ours { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px;
+          font-size: 11px; color: var(--moss); border: 1px solid var(--moss); }
+  .reach .flag { color: var(--ember); flex: 1 1 auto; }
+
+  /* ---- browse panes inside the roster / sources modals ---- */
+  .lede { margin: 2px 0 12px; font-size: 13px; color: var(--ink-soft); max-width: 68ch; }
+  .browsebar { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; }
+  .morebar { display: flex; align-items: center; justify-content: space-between;
+             gap: 12px; padding: 10px 0 2px; font-size: 12.5px; color: var(--ink-faint); }
+  .addbox { margin: 2px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+  .addbox summary { cursor: pointer; color: var(--moss); font-size: 13.5px; }
+  .addbox form { margin-top: 10px; }
+  .browsebar input { flex: 1 1 auto; padding: 7px 10px; font: inherit; font-size: 13.5px;
+                     background: #fff; color: var(--ink); border: 1px solid var(--rule);
+                     border-radius: 3px; }
+  .rrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px;
+          padding: 7px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
+  .rrow .nm { font-weight: 600; color: var(--ink); }
+  .rrow .sub { color: var(--ink-faint); flex: 1 1 100%; font-size: 12.5px; }
+  .rrow a { color: var(--moss); text-decoration: none; }
+  .rrow a:hover { text-decoration: underline; }
+  .pill { padding: 0 7px; border-radius: 9px; font-size: 11px; border: 1px solid var(--rule);
+          color: var(--ink-soft); }
+  .pill.warm { color: var(--moss); border-color: var(--moss); }
+  .pill.prospect { color: var(--ink-faint); }
+  .pill.departed, .pill.stale { color: var(--ember); border-color: var(--ember); }
+  .pill.added { color: var(--moss); border-color: var(--moss); }
 
   /* relevance as a bar, not a badge */
   .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .bar .track { width: 74px; height: 3px; background: var(--rule); }
-  .bar .fill { height: 3px; background: var(--moss); }
+  /* flex: 0 0 - as a plain flex item the track was shrinking from 92px to 70,
+     while the fill was still sized in px against the 92 it thought it had. It
+     overflowed, got clipped, and every score above ~76 rendered as a full bar:
+     the exact opposite of showing relevance. */
+  .bar .track { flex: 0 0 92px; height: 6px; background: var(--rule);
+                border-radius: 3px; overflow: hidden; }
+  /* Banded rather than a continuous ramp: the score is a model estimate, and a
+     smooth gradient implies a precision it does not have. Four bands say
+     "pursue / look / marginal / no" and that is the real resolution. */
+  /* display:block is load-bearing. As an inline span the fill ignored `width`
+     entirely and painted nothing, so the bar has only ever shown its grey
+     track - getComputedStyle reported the width we asked for, which is why it
+     looked correct while measuring 0px on screen. */
+  .bar .fill { display: block; height: 6px; border-radius: 3px;
+               background: var(--moss); }
+  .bar .fill.mid  { background: var(--moss); opacity: .55; }
+  .bar .fill.lo   { background: var(--ink-faint); opacity: .55; }
+  .bar .fill.min  { background: var(--ink-faint); opacity: .3; }
   .bar .num { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
-  details.more { margin-top: 10px; font-size: 13.5px; color: var(--ink-soft); max-width: 72ch; }
+  details.more { margin-top: 10px; font-size: 13.5px; color: var(--ink-soft); }
   details.more summary { cursor: pointer; color: var(--moss); }
   details.more p { margin: 8px 0 0; }
   .acts { margin-top: 8px; }
@@ -117,6 +183,8 @@
   .amt { color: var(--ink); font-weight: 500; }
   .nosyn { margin: 8px 0 0; font-size: 13px; color: var(--ink-faint); }
   .areatag { display: inline-block; float: right; margin: 0 0 4px 8px; padding: 1px 7px;
+             max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+             vertical-align: bottom;
              font: inherit; font-size: 11.5px; color: var(--ink-soft); cursor: pointer;
              background: var(--paper); border: 1px solid var(--rule); border-radius: 9px; }
   .areatag:hover { color: var(--moss); border-color: var(--moss); }
@@ -320,7 +388,8 @@
           <p class="desc">Add past collaborations used when scoring new calls.
             Dashboard entries merge with the reviewed YAML baseline on the next
             assess run.</p>
-          <button type="button" class="vote" id="open-roster">Manage roster</button>
+          <button type="button" class="vote" id="open-roster">Who we know</button>
+          <button type="button" class="vote" id="open-sources">Where calls come from</button>
         </div>
         <div class="cfgsec">
           <h3>Email digests</h3>
@@ -336,9 +405,8 @@
         </div>
       </div>
     </div>
+    <div id="alarm"></div>
   </header>
-
-  <div id="alarm"></div>
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
@@ -364,12 +432,59 @@
   <footer id="foot"></footer>
 </div>
 
+<div class="modal-backdrop" id="sources-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sources-title">
+    <header>
+      <h2 id="sources-title">Where calls come from</h2>
+      <button type="button" class="x" id="sources-close" aria-label="Close">Close</button>
+    </header>
+    <details class="addbox">
+      <summary>Add a source the tool does not read yet</summary>
+    <form id="sform">
+      <input id="s-name" class="wide" placeholder="funder name, e.g. Kavli Foundation"
+             maxlength="120" required>
+      <input id="s-url" class="wide" placeholder="https://example.org/grants"
+             maxlength="500" required>
+      <select id="s-kind">
+        <option value="page">web page</option>
+        <option value="feed">RSS/Atom feed</option>
+      </select>
+      <select id="s-cadence">
+        <option value="weekly">weekly</option>
+        <option value="daily">daily</option>
+        <option value="monthly">monthly</option>
+      </select>
+      <input id="s-notes" class="wide" placeholder="notes, e.g. which page actually lists open calls"
+             maxlength="500">
+      <button class="vote" type="submit">Add source</button>
+      <span class="hint" id="s-hint"></span>
+    </form>
+    </details>
+    <p class="lede">Every funder page, feed and API this tool reads. Each shows
+      when it last worked, so a source that has quietly stopped yielding is
+      visible rather than silent.</p>
+    <div class="browsebar">
+      <input id="s-search" class="wide" type="search"
+             placeholder="Search sources by name or URL">
+      <span class="hint" id="s-count"></span>
+    </div>
+    <div class="rlist" id="slist"></div>
+    <div class="note">Added sources are kept separately from
+      <code>config/sources.yaml</code>, which stays the reviewed baseline, and are
+      merged with it on the next ingest. A URL already covered by either list is
+      refused rather than added twice: the same funder under two names would be
+      fetched twice and each copy would report itself healthy.</div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="roster-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="roster-title">
     <header>
-      <h2 id="roster-title">Collaborator roster</h2>
+      <h2 id="roster-title">Who we know</h2>
       <button type="button" class="x" id="roster-close" aria-label="Close">Close</button>
     </header>
+    <details class="addbox">
+      <summary>Add a collaborator who is not listed above</summary>
     <form id="rform">
       <input id="r-domain" class="wide" placeholder="domain, e.g. hydrology" maxlength="120" required>
       <input id="r-collab" class="wide" placeholder="collaborator, e.g. R. Alvarez (PI, CEE)" maxlength="200" required>
@@ -383,15 +498,25 @@
         <option value="do-not-contact">do-not-contact</option>
       </select>
       <input id="r-notes" class="wide" placeholder="notes" maxlength="500">
-      <button class="vote" type="submit">Add</button>
+      <button class="vote" type="submit">Add collaborator</button>
       <span class="hint" id="r-hint"></span>
     </form>
+    </details>
+    <p class="lede">Everyone the matcher can suggest: people we have worked
+      with, and people we have only emailed. Search before adding &mdash; most
+      names are already here.</p>
+    <div class="browsebar">
+      <input id="r-search" class="wide" type="search"
+             placeholder="Search by name, research area, department or project">
+      <span class="hint" id="r-count"></span>
+    </div>
     <div class="rlist" id="rlist"></div>
-    <div class="note">Kept separately from <code>config/roster.yaml</code>, which
-      stays the reviewed baseline. The two are merged when the classifier runs, so
-      a new entry affects the next assessment. It cannot retroactively match calls
-      already scored: run <code>assess --rematch</code> for that. New entries
-      default to cold, because nothing here has been reviewed yet.</div>
+    <div class="note">Entries added here are kept separately from
+      <code>config/roster.yaml</code>, which stays the reviewed baseline. The two
+      are merged when the classifier runs, so a new entry affects the next
+      assessment. It cannot retroactively match calls already scored: run
+      <code>assess --rematch</code> for that. New entries default to cold,
+      because nothing here has been reviewed yet.</div>
   </div>
 </div>
 
@@ -403,10 +528,25 @@ let PAGE = 1, PAGE_SIZE = 25;
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
 const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+// Illinois Experts areas are often long comma-joined concept lists. Keep the
+// full string as the filter value; shorten only what the browser paints.
+function shortArea(d, max = 42) {
+  if (!d) return "";
+  if (d.length <= max) return d;
+  const first = d.split(",")[0].trim();
+  if (first.length >= 10 && first.length <= max) return first;
+  return d.slice(0, max - 1).replace(/\s+\S*$/, "").trimEnd() + "…";
+}
+
 function matches(o) {
   if (AREA && o.match_domain !== AREA) return false;
   if (QUERY) {
-    const hay = [o.title, o.agency, o.source, o.match_name, o.match_domain, o.match_project, o.rationale]
+    const c = o.contact || {};
+    // Our own people are searchable too: "kooper" should answer "what is on
+    // Rob's plate this month" without him reading all of it.
+    const hay = [o.title, o.agency, o.source, o.match_name, o.match_domain,
+                 o.match_project, o.rationale, c.email, c.unit,
+                 ...(c.ncsa_contact || []).flatMap(p => [p.name, p.email])]
       .join(" ").toLowerCase();
     if (!hay.includes(QUERY)) return false;
   }
@@ -427,6 +567,52 @@ function sortRows(rows) {
     new:      (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "")
   }[SORT];
   return [...rows].sort(by);
+}
+
+// Both ends of the introduction: the researcher to approach, and whoever here
+// already has a line to them. A match that leaves you hunting for an address
+// in a spreadsheet has not saved anyone any work.
+function mailto(name, email, extra) {
+  // Name links, address shown beside it. The address used to live only in a
+  // title attribute: invisible on touch, uncopyable, and useless to anyone
+  // who wanted to paste it somewhere.
+  const link = email
+    ? `<a href="mailto:${esc(email)}">${esc(name)}</a>` +
+      ` <a class="addr" href="mailto:${esc(email)}">${esc(email)}</a>`
+    : `${esc(name)} <span class="noaddr">no address on file</span>`;
+  return link + (extra ? ` <span class="cold">${esc(extra)}</span>` : "");
+}
+
+function reach(o) {
+  const c = o.contact;
+  if (!c) return "";
+  // Nothing to act on: no address, nobody here who knows them, nothing to
+  // check. A row saying "no address on file" under a match that is a team
+  // rather than a person is just a line of grey text.
+  const anyInternal = (c.ncsa_contact || []).some(p => p.name);
+  if (!c.email && !anyInternal && !c.review) return "";
+  const lines = [];
+  const where = [c.unit, c.org && c.org !== "UIUC" ? c.org : null]
+    .filter(Boolean).join(", ");
+  // A program is something we run, so there is no "them" to write to. Showing
+  // one anyway produced "reach out to Luigi Marini, via us: Luigi Marini".
+  // The internal row below is the whole answer.
+  if (c.kind !== "program") {
+    lines.push(`<div><span class="who">them</span><span>${
+      mailto(o.match_name, c.email, where)}</span></div>`);
+  }
+
+  if (c.ncsa_contact && c.ncsa_contact.length) {
+    lines.push(`<div><span class="who">via us</span><span>${
+      c.ncsa_contact.map(p => mailto(p.name, p.email)).join(", ")}</span></div>`);
+  }
+  // Only shown when it changes what you would do: a bad address, or a person
+  // who has left. Never sent to the model.
+  if (c.review) {
+    lines.push(`<div><span class="who">check</span><span class="flag">${
+      esc(c.review)}</span></div>`);
+  }
+  return `<div class="reach">${lines.join("")}</div>`;
 }
 
 function rowHTML(o) {
@@ -455,20 +641,35 @@ function rowHTML(o) {
           : "useful"}</span>`
     : "";
   const area = o.match_domain
-    ? `<button class="areatag" data-area="${esc(o.match_domain)}" title="Show only this roster area">${esc(o.match_domain)}</button>`
+    ? `<button class="areatag" data-area="${esc(o.match_domain)}" title="${esc(o.match_domain)}">${esc(shortArea(o.match_domain))}</button>`
     : "";
+  // The name in bold moss reads as a link because every link on this page is
+  // bold moss. Make it one when there is an address behind it, rather than
+  // leaving a click target that silently does nothing.
+  const fitName = (o.contact && o.contact.email)
+    ? `<a href="mailto:${esc(o.contact.email)}"><b>${esc(o.match_name)}</b></a>`
+    : `<b>${esc(o.match_name)}</b>`;
   const fit = o.match_name ? `
-    <div class="fit">${area}Closest fit: <b>${esc(o.match_name)}</b>
+    <div class="fit">${area}Closest fit: ${fitName}
       ${o.match_project ? ": " + esc(o.match_project) : ""}
       ${o.match_status && o.match_status !== "warm"
         ? `<span class="cold">(${esc(o.match_status)})</span>` : ""}
-      ${o.match_rationale ? "<br>" + esc(o.match_rationale) : ""}</div>` : "";
+      ${o.match_kind === "contact"
+        ? `<span class="lead" title="On the outreach list. We have emailed them; we have not worked with them.">lead, not a past project</span>`
+        : ""}
+      ${o.match_kind === "program"
+        ? `<span class="ours" title="Something we run. There is no outside partner to approach; this call could fund work on it.">our own program</span>`
+        : ""}
+      ${o.match_rationale ? "<br>" + esc(o.match_rationale) : ""}
+      ${reach(o)}</div>` : "";
 
   return `<article class="row${soon ? " soon" : ""}">
     <div class="when">${when}</div>
     <div>
       <div class="bar">
-        <span class="track" role="img" aria-label="Relevance ${o.score} of 100"><span class="fill" style="width:${Math.max(4, o.score * 0.74)}px"></span></span>
+        <span class="track" role="img" aria-label="Relevance ${o.score} of 100"><span class="fill ${
+          o.score >= 80 ? "hi" : o.score >= 60 ? "mid" : o.score >= 40 ? "lo" : "min"
+        }" style="width:${Math.max(3, Math.min(100, o.score))}%"></span></span>
         <span class="num" title="How well this matches the group's work, scored 0 to 100 by the model">relevance ${o.score}/100</span>
       </div>
       ${verdict}
@@ -479,7 +680,6 @@ function rowHTML(o) {
       <p class="why">${esc(o.rationale)}</p>
       ${fit}
       <div class="acts">
-        ${o.url ? `<a class="act" href="${esc(o.url)}" target="_blank" rel="noopener">Open the full call &rarr;</a>` : ""}
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
         <button class="vote" data-vote="down" data-id="${esc(o.id)}" aria-pressed="false" title="Not for us: score it lower next time">&#9661; not for us</button>
         <button class="act" data-chat="${esc(o.id)}">Ask about this call</button>
@@ -518,7 +718,7 @@ function rowHTML(o) {
       </div>
       ${o.synopsis
         ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
-        : `<p class="nosyn">No summary was captured for this call. Use "Open the full call".</p>`}
+        : `<p class="nosyn">No summary was captured for this call. Open it from the title above.</p>`}
     </div>
   </article>`;
 }
@@ -683,6 +883,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     closeConfig();
     closeRoster();
+    closeSources();
   }
 });
 
@@ -691,7 +892,7 @@ function openRoster() {
   const m = document.getElementById("roster-modal");
   m.hidden = false;
   m.classList.add("on");
-  document.getElementById("r-domain").focus();
+  document.getElementById("r-search").focus();
   loadRoster();
 }
 function closeRoster() {
@@ -699,6 +900,25 @@ function closeRoster() {
   m.classList.remove("on");
   m.hidden = true;
 }
+function openSources() {
+  closeConfig();
+  const m = document.getElementById("sources-modal");
+  m.hidden = false;
+  m.classList.add("on");
+  document.getElementById("s-search").focus();
+  loadSources();
+}
+function closeSources() {
+  const m = document.getElementById("sources-modal");
+  m.classList.remove("on");
+  m.hidden = true;
+}
+document.getElementById("open-sources").addEventListener("click", openSources);
+document.getElementById("sources-close").addEventListener("click", closeSources);
+document.getElementById("sources-modal").addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeSources();
+});
+
 document.getElementById("open-roster").addEventListener("click", openRoster);
 document.getElementById("roster-close").addEventListener("click", closeRoster);
 document.getElementById("roster-modal").addEventListener("click", e => {
@@ -813,20 +1033,192 @@ function paintFeedback() {
   });
 }
 
+// The roster and source lists are browsable, not just writable. A form you
+// cannot read back is one people fill in twice: without seeing that Sarita
+// Adve is already on the roster, the reasonable thing to do is add her again.
+let ROSTER = [], SOURCES = [];
+// Both lists open short and grow on demand. Rendering 285 collaborators at
+// once buries the search box and makes the panel feel like a data dump rather
+// than something you look things up in. "Show all" is always one click away
+// for the times you do want the whole thing.
+const PAGE_STEP = 5;
+let R_SHOWN = PAGE_STEP, S_SHOWN = PAGE_STEP;
+
+function moreBar(total, shown, id, noun) {
+  if (total <= shown) {
+    return total > PAGE_STEP
+      ? `<div class="morebar"><span>all ${total} ${noun} shown</span>
+           <button class="vote" data-collapse="${id}">Show fewer</button></div>`
+      : "";
+  }
+  const next = Math.min(PAGE_STEP, total - shown);
+  return `<div class="morebar">
+      <span>showing ${shown} of ${total} ${noun}</span>
+      <span><button class="vote" data-more="${id}">Show ${next} more</button>
+      <button class="vote" data-all="${id}">Show all ${total}</button></span>
+    </div>`;
+}
+
+// A search should start from the top of the results, not from wherever the
+// previous query had been expanded to.
+function resetRosterPage() { R_SHOWN = PAGE_STEP; renderRoster(); }
+function resetSourcePage() { S_SHOWN = PAGE_STEP; renderSources(); }
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-more],[data-all],[data-collapse]");
+  if (!b) return;
+  const which = b.dataset.more || b.dataset.all || b.dataset.collapse;
+  const isRoster = which === "r-more";
+  const total = isRoster ? ROSTER.length : SOURCES.length;
+  if (b.dataset.all) { if (isRoster) R_SHOWN = total; else S_SHOWN = total; }
+  else if (b.dataset.collapse) { if (isRoster) R_SHOWN = PAGE_STEP; else S_SHOWN = PAGE_STEP; }
+  else { if (isRoster) R_SHOWN += PAGE_STEP; else S_SHOWN += PAGE_STEP; }
+  if (isRoster) renderRoster(); else renderSources();
+});
+
+function statusPill(st) {
+  return `<span class="pill ${esc(st)}">${esc(st)}</span>`;
+}
+
+function renderRoster() {
+  const q = (document.getElementById("r-search").value || "").trim().toLowerCase();
+  const hit = ROSTER.filter(e => {
+    if (!q) return true;
+    return [e.name, e.unit, e.org, (e.areas || []).join(" "),
+            (e.projects || []).map(p => p.title).join(" "), e.email]
+      .join(" ").toLowerCase().includes(q);
+  });
+  document.getElementById("r-count").textContent =
+    q ? `${hit.length} of ${ROSTER.length}` : `${ROSTER.length} on the roster`;
+
+  R_SHOWN = Math.min(R_SHOWN, Math.max(PAGE_STEP, hit.length));
+  const page = hit.slice(0, R_SHOWN);
+  document.getElementById("rlist").innerHTML = hit.length
+    ? page.map(e => {
+        const areas = (e.areas || []).slice(0, 4).join(", ");
+        const projects = (e.projects || []).map(p =>
+          esc(p.title) + (p.years ? ` <span class="pill">${esc(p.years)}</span>` : "")).join(" · ");
+        const via = (e.ncsa_contact || []).filter(c => c.name).map(c =>
+          c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.name)}</a>` : esc(c.name)).join(", ");
+        return `<div class="rrow">
+          <span class="nm">${esc(e.name)}</span>
+          ${statusPill(e.status)}
+          ${e.origin === "dashboard" ? '<span class="pill added">added here</span>' : ""}
+          ${e.email ? `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>` : ""}
+          ${e.origin === "dashboard" && e.id
+            ? `<button class="vote" data-retire="${e.id}">retire</button>` : ""}
+          <span class="sub">${esc(e.unit || "")}${areas ? (e.unit ? " · " : "") + esc(areas) : ""}${
+            projects ? "<br>" + projects : ""}${via ? "<br>via us: " + via : ""}</span>
+        </div>`;
+      }).join("") + moreBar(hit.length, R_SHOWN, "r-more", "collaborators")
+    : "<i>nothing matches that search</i>";
+}
+
 async function loadRoster() {
   try {
     const r = await fetch("api/roster");
-    if (!r.ok) return;
-    const { entries } = await r.json();
-    const el = document.getElementById("rlist");
-    el.innerHTML = entries.length
-      ? `<b>${entries.length} added here</b>` + entries.map(e =>
-          `<div>${esc(e.domain)}: ${esc(e.collaborator)} (${esc(e.status)})` +
-          `${e.created_by && e.created_by !== "anonymous" ? " by " + esc(e.created_by) : ""}` +
-          ` <button class="vote" data-retire="${e.id}">retire</button></div>`).join("")
-      : "<i>none yet; the YAML baseline is used on its own</i>";
-  } catch (e) {}
+    if (!r.ok) {
+      document.getElementById("rlist").innerHTML =
+        `<i>${r.status === 401 || r.status === 403
+          ? "sign in to browse the roster" : "could not load the roster"}</i>`;
+      return;
+    }
+    ROSTER = (await r.json()).entries || [];
+    // Warm first, then cold, then leads: the useful end of a 285-entry list.
+    const rank = { warm: 0, cold: 1, prospect: 2, departed: 3 };
+    ROSTER.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
+                       || a.name.localeCompare(b.name));
+    renderRoster();
+  } catch (e) {
+    document.getElementById("rlist").innerHTML = "<i>could not reach the server</i>";
+  }
 }
+
+function renderSources() {
+  const q = (document.getElementById("s-search").value || "").trim().toLowerCase();
+  const hit = SOURCES.filter(s =>
+    !q || [s.name, s.url, s.kind].join(" ").toLowerCase().includes(q));
+  document.getElementById("s-count").textContent =
+    q ? `${hit.length} of ${SOURCES.length}` : `${SOURCES.length} sources`;
+
+  S_SHOWN = Math.min(S_SHOWN, Math.max(PAGE_STEP, hit.length));
+  document.getElementById("slist").innerHTML = hit.length
+    ? hit.slice(0, S_SHOWN).map(s => {
+        // Health sits next to the source because a source that quietly stopped
+        // yielding is the failure this tool exists to catch.
+        const when = s.last_success
+          ? `last success ${s.last_success.slice(0, 10)}` + (s.last_yield != null ? `, ${s.last_yield} kept` : "")
+          : "never succeeded";
+        return `<div class="rrow">
+          <span class="nm">${esc(s.name)}</span>
+          <span class="pill">${esc(s.kind)}</span>
+          ${s.origin === "dashboard" ? '<span class="pill added">added here</span>' : ""}
+          ${s.stale ? '<span class="pill stale">stale</span>' : ""}
+          ${s.origin === "dashboard" && s.id
+            ? `<button class="vote" data-sretire="${s.id}">retire</button>` : ""}
+          <span class="sub"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a>
+            <br>${esc(when)}${s.cadence ? " · " + esc(s.cadence) : ""}${
+              s.last_error ? ' · <span style="color:var(--ember)">' + esc(s.last_error.slice(0, 90)) + "</span>" : ""}</span>
+        </div>`;
+      }).join("") + moreBar(hit.length, S_SHOWN, "s-more", "sources")
+    : "<i>nothing matches that search</i>";
+}
+
+async function loadSources() {
+  try {
+    const r = await fetch("api/sources");
+    if (!r.ok) {
+      document.getElementById("slist").innerHTML =
+        `<i>${r.status === 401 || r.status === 403
+          ? "sign in to browse sources" : "could not load sources"}</i>`;
+      return;
+    }
+    const d = await r.json();
+    SOURCES = d.sources || [];
+    renderSources();
+  } catch (e) {
+    document.getElementById("slist").innerHTML = "<i>could not reach the server</i>";
+  }
+}
+
+document.getElementById("r-search").addEventListener("input", resetRosterPage);
+document.getElementById("s-search").addEventListener("input", resetSourcePage);
+
+document.getElementById("sform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const hint = document.getElementById("s-hint");
+  const body = {
+    name: document.getElementById("s-name").value,
+    url: document.getElementById("s-url").value,
+    kind: document.getElementById("s-kind").value,
+    cadence: document.getElementById("s-cadence").value,
+    notes: document.getElementById("s-notes").value,
+  };
+  hint.textContent = "adding...";
+  try {
+    const r = await fetch("api/sources", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(45000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { hint.textContent = d.detail || `failed (${r.status})`; return; }
+    hint.textContent = d.note || "added";
+    ["s-name", "s-url", "s-notes"].forEach(i => { document.getElementById(i).value = ""; });
+    loadSources();
+  } catch (err) {
+    hint.textContent = err.name === "TimeoutError" ? "timed out" : "could not reach the server";
+  }
+});
+
+document.getElementById("slist").addEventListener("click", async e => {
+  const b = e.target.closest("[data-sretire]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await fetch(`api/sources/${b.dataset.sretire}/retire`, { method: "POST" });
+    loadSources();
+  } catch (err) { b.disabled = false; }
+});
 
 document.getElementById("rform").addEventListener("submit", async e => {
   e.preventDefault();
@@ -1067,7 +1459,8 @@ function boot(payload) {
     .forEach(([d, n]) => {
       const opt = document.createElement("option");
       opt.value = d;
-      opt.textContent = `${d} (${n})`;
+      opt.textContent = `${shortArea(d, 36)} (${n})`;
+      opt.title = d;
       sel.appendChild(opt);
     });
   if (!counts.size) sel.disabled = true;
@@ -1075,9 +1468,9 @@ function boot(payload) {
   const stale = payload.stale_sources || [];
   if (stale.length) {
     document.getElementById("alarm").innerHTML =
-      `<div class="alarm">${stale.length} source${stale.length > 1 ? "s have" : " has"}
-       not updated in over 30 days: ${stale.map(s => esc(s.name)).join(", ")}.
-       Check the adapter before trusting this list as complete.</div>`;
+      `<div class="alarm">Coverage: <b>${stale.map(s => esc(s.name)).join(", ")}</b>
+       ${stale.length > 1 ? "have" : "has"} not updated in over 30 days &mdash;
+       this list may be incomplete.</div>`;
   }
   document.getElementById("foot").textContent =
     `Generated ${payload.generated_at || "unknown"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
