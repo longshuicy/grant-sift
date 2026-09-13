@@ -74,6 +74,22 @@
     padding: 9px 12px; font: inherit; color: var(--ink);
     background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
   }
+  /* Above the filter row, not inside it. Focus decides WHICH calls are in
+     play; the chips below narrow whatever it returned. Two jobs, so two
+     visibly different controls. */
+  .focusbox { margin-bottom: 14px; }
+  .focuslab { display: block; font-size: 12px; letter-spacing: .04em;
+              text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
+  .focusbox textarea {
+    width: 100%; box-sizing: border-box; padding: 10px 12px; font: inherit;
+    font-size: 14px; resize: vertical;
+    border: 1px solid var(--rule); border-radius: 3px; background: var(--card);
+  }
+  .focusacts { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+  .focusnote { font-size: 13px; color: var(--ink-soft); }
+  .focusnote b { color: var(--ink); }
+  .affinity { font-size: 12.5px; color: var(--ink-soft); margin: 2px 0 8px; }
+  .affinity b { color: var(--ink); font-weight: 500; }
   .filters {
     display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
   }
@@ -319,6 +335,7 @@
     background: #fff; color: var(--ink);
   }
   .search, .sortsel { background: #fff; }
+  .focusbox textarea { background: #fff; }
 
   .pager {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -435,6 +452,16 @@
   </header>
 
   <div class="controls">
+    <div class="focusbox">
+      <label for="idea" class="focuslab">What are you working on?</label>
+      <textarea id="idea" rows="2" maxlength="4000"
+        placeholder="Describe the idea in your own words &mdash; a reproducible pipeline for cryo-EM data, say, and that you would need a domain PI to host it."></textarea>
+      <div class="focusacts">
+        <button type="button" class="vote" id="focus-go">Find matching calls</button>
+        <button type="button" class="vote" id="focus-clear" hidden>&times; clear</button>
+        <span class="focusnote" id="focus-note"></span>
+      </div>
+    </div>
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
     <div class="filters">
       <button class="chip" data-filter="soon" aria-pressed="false">Closing soon</button>
@@ -452,6 +479,7 @@
       </select>
       <select id="sort" class="sortsel">
         <option value="score" selected>Sort: highest relevance</option>
+        <option value="affinity" hidden>Sort: closest to my idea</option>
         <option value="deadline">Sort: soonest deadline</option>
         <option value="award-desc">Sort: largest award</option>
         <option value="award-asc">Sort: smallest award</option>
@@ -558,6 +586,10 @@
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "", FUNDER = "";
+// Focus results live here and nowhere else. The server stores nothing about
+// an idea - not a table, not a log line - so this object and the textarea are
+// the only copies, and both die with the tab. Same posture as the chat key.
+let FOCUS = null;   // { idea, byId: {id: {affinity, why}}, searched }
 let PAGE = 1, PAGE_SIZE = 25;
 
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
@@ -656,6 +688,9 @@ function viaMe(o) {
 }
 
 function matches(o) {
+  // Focus gates membership; the chips and selects below narrow what it
+  // returned; the sort orders what survives. Three jobs, kept separate.
+  if (FOCUS && !FOCUS.byId[o.id]) return false;
   if (AREA && o.match_domain !== AREA) return false;
   if (FUNDER && o._funder !== FUNDER) return false;
   if (QUERY) {
@@ -700,6 +735,8 @@ function sortRows(rows) {
     score:         (a,b) => b.score - a.score,
     "award-desc":  byAward("desc"),
     "award-asc":   byAward("asc"),
+    affinity:      (a,b) => ((FOCUS?.byId[b.id]?.affinity ?? 0) - (FOCUS?.byId[a.id]?.affinity ?? 0))
+                            || b.score - a.score,
     new:           (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "")
   }[SORT] || ((a,b) => b.score - a.score);
   return [...rows].sort(by);
@@ -817,6 +854,10 @@ function rowHTML(o) {
         ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>`
         : esc(o.title)}</h2>
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
+      ${FOCUS?.byId[o.id]
+        ? `<p class="affinity">matches your idea <b>${FOCUS.byId[o.id].affinity}/100</b>${
+             FOCUS.byId[o.id].why ? " &mdash; " + esc(FOCUS.byId[o.id].why) : ""}</p>`
+        : ""}
       ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
       <p class="why"><span class="tag">why</span>${esc(o.rationale)}</p>
       ${fit}
@@ -966,6 +1007,84 @@ try {
   document.getElementById(id).addEventListener("change", saveChatSettings));
 document.getElementById("k-key").addEventListener("input", () => {
   document.getElementById("k-key").classList.remove("hilite");
+});
+
+// ---- Focus: an idea in prose -> the calls that match it -----------------
+
+function setFocusNote(html, busy) {
+  const el = document.getElementById("focus-note");
+  el.innerHTML = html || "";
+  document.getElementById("focus-go").disabled = !!busy;
+  document.getElementById("focus-go").textContent =
+    busy ? "Searching\u2026" : "Find matching calls";
+}
+
+function clearFocus() {
+  FOCUS = null;
+  const sel = document.getElementById("sort");
+  sel.querySelector('option[value="affinity"]').hidden = true;
+  if (SORT === "affinity") { SORT = "score"; sel.value = "score"; }
+  document.getElementById("focus-clear").hidden = true;
+  setFocusNote("");
+  PAGE = 1;
+  render();
+}
+
+async function runFocus() {
+  const idea = document.getElementById("idea").value.trim();
+  if (!idea) { setFocusNote("Describe the idea first."); return; }
+  const { key, model, base } = keyBar();
+  if (!key) {
+    // Same degradation as the chat button: this is a request-path model call
+    // on the viewer's own key, and there is no server key to fall back to.
+    setFocusNote("Add your API key in <b>Personalize</b> first.");
+    openConfig({ hilite: true });
+    return;
+  }
+  // Two calls over the whole live catalogue: slow enough that a spinner alone
+  // reads as broken. Say what is happening and roughly how long.
+  setFocusNote("Reading every open call against your idea\u2026 this takes "
+               + "under a minute.", true);
+  try {
+    const r = await fetch("/api/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idea, api_key: key, model, base_url: base }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || `focus failed (${r.status})`);
+
+    const byId = {};
+    for (const row of data.results || []) byId[row.id] = row;
+    const n = Object.keys(byId).length;
+    if (!n) {
+      FOCUS = null;
+      setFocusNote(`Nothing matched, out of <b>${data.searched}</b> open calls. `
+                   + "Try describing the work rather than the field.");
+      document.getElementById("focus-clear").hidden = false;
+      PAGE = 1; render();
+      return;
+    }
+    FOCUS = { idea, byId, searched: data.searched };
+    const sel = document.getElementById("sort");
+    sel.querySelector('option[value="affinity"]').hidden = false;
+    SORT = "affinity"; sel.value = "affinity";
+    document.getElementById("focus-clear").hidden = false;
+    setFocusNote(`<b>${n}</b> of ${data.searched} open calls relate to this`
+                 + (data.trimmed ? ` (${data.trimmed} not searched: catalogue over the size cap)` : ""));
+    PAGE = 1;
+    render();
+  } catch (e) {
+    setFocusNote(esc(String(e.message || e)));
+  }
+}
+
+document.getElementById("focus-go").addEventListener("click", runFocus);
+document.getElementById("focus-clear").addEventListener("click", clearFocus);
+// Enter submits, newline still available: the box is prose, but the common
+// case is one sentence and a reach for the mouse is friction.
+document.getElementById("idea").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); runFocus(); }
 });
 
 function turnHTML(t) {
