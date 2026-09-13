@@ -123,6 +123,9 @@
   .cap { color: var(--ember); }
 
   .why { margin: 0 0 10px; }
+  /* What the call funds, written to be read. Sits above .why, which is the
+     model's justification of the score and answers a different question. */
+  .sumry { margin: 0 0 8px; color: var(--ink); }
 
   .fit {
     padding: 9px 12px; background: var(--card);
@@ -205,6 +208,7 @@
   .amt { color: var(--ink); font-weight: 500; }
   .noamt { color: var(--ink-faint); }
   .nosyn { margin: 8px 0 0; font-size: 13px; color: var(--ink-faint); }
+  .trunc { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-faint); }
   .areatag { display: inline-block; float: right; margin: 0 0 4px 8px; padding: 1px 7px;
              max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
              vertical-align: bottom;
@@ -823,6 +827,7 @@ function rowHTML(o) {
         ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>`
         : esc(o.title)}</h2>
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
+      ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
       <p class="why">${esc(o.rationale)}</p>
       ${fit}
       <div class="acts">
@@ -863,8 +868,12 @@ function rowHTML(o) {
         </div>
       </div>
       ${o.synopsis
-        ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
-        : `<p class="nosyn">No summary was captured for this call. Open it from the title above.</p>`}
+        ? `<details class="more"><summary>Show the funder's own text</summary><p>${
+             esc(o.synopsis)}${o.synopsis.length >= 900 ? "\u2026" : ""}</p>${
+             o.synopsis.length >= 900
+               ? `<p class="trunc">Cut at 900 characters. Open the call above for the rest.</p>`
+               : ""}</details>`
+        : `<p class="nosyn">No text was captured from the funder for this call. Open it from the title above.</p>`}
     </div>
   </article>`;
 }
