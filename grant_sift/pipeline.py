@@ -651,7 +651,7 @@ def _loads(blob):
 
 def export_json(conn, path="web/opportunities.json", min_score=0, roster=None):
     rows = conn.execute(
-        """SELECT o.id, o.source, o.title, o.synopsis, o.agency, o.url, o.deadline,
+        """SELECT o.id, o.source, o.title, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
                   a.score, a.category, a.rationale, a.summary,
                   a.axes_json, a.facts_json,
@@ -672,8 +672,14 @@ def export_json(conn, path="web/opportunities.json", min_score=0, roster=None):
         "count": len(rows),
         "stale_sources": [dict(r) for r in db.stale_sources(conn)],
         "opportunities": [
+            # The synopsis is no longer exported. It was 0.96 MB of a 2.56 MB
+            # payload, 37% of what every visitor downloads, and the dashboard
+            # rendered it in exactly one place: a disclosure labelled "Show
+            # summary" that actually held the funder's prose cut at 900
+            # characters. The generated summary replaces it, every record has
+            # a url to read the real thing, and the chat proxy reads the full
+            # synopsis server-side from the database rather than from here.
             {k: r[k] for k in r.keys() if k not in ("axes_json", "facts_json")}
-            | {"synopsis": (r["synopsis"] or "")[:900]}
             # Emitted as null when the model did not answer, rather than
             # synthesised from the scalar score. A fabricated block would be
             # indistinguishable from a real one, and the consumer is the only
