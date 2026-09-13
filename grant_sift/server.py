@@ -128,6 +128,7 @@ FOCUS_SHORTLIST = int(os.environ.get("GRANT_SIFT_FOCUS_SHORTLIST", "50"))
 # Per chunk, so the merged shortlist lands near FOCUS_SHORTLIST without any
 # one chunk being able to fill it alone.
 FOCUS_PER_CHUNK = int(os.environ.get("GRANT_SIFT_FOCUS_PER_CHUNK", "15"))
+
 # Second pass reads fuller text for the shortlist. 50 x 1,500 chars is ~19k
 # tokens in one call, against 50 separate calls at three seconds each.
 FOCUS_RERANK_CHARS = 1500
@@ -1043,6 +1044,41 @@ Say why in terms of the idea, not the call in general. Drop anything under 40
 rather than listing it."""
 
 
+# Re-scoring is not searching, and reusing the search prompt was wrong: it says
+# to drop anything under 40, which is right when sifting a thousand calls and
+# wrong here. In a re-score the model has seen every item, so "not returned"
+# would mean "scored low" -- and silently keeping the old number then leaves a
+# call that has become irrelevant still looking relevant. Measured: 5 of 9 came
+# back, and the 4 missing were the ones the edited idea had demoted.
+FOCUS_RESCORE_SYSTEM = """You are helping someone choose ONE funding call to write for,
+from a shortlist they have kept and pruned while working on the idea below. They
+are converging, not assembling a portfolio.
+
+Some of these were kept under an earlier wording of the idea and may no longer
+fit. Score every one against the idea AS IT NOW READS.
+
+Return ONLY JSON, no fences:
+{
+  "recommendation": "2-3 sentences: which one to go for and why it beats the
+                     others. Name the runner-up and say what would change the
+                     answer. Deadlines count - a close fit that cannot be
+                     written well in the time left is often the wrong answer.",
+  "calls": [{"id": "exactly as given", "affinity": 0-100, "why": "one sentence"}]
+}
+
+affinity is how well THIS CALL fits THIS IDEA as now written. It is not a
+quality score: a superb call that no longer matches should drop, and saying so
+is the point of this pass.
+
+  80-100  the idea could be proposed to this call largely as it stands
+  60-79   a real fit; the idea would need reframing
+  40-59   adjacent; a component of the idea fits
+  0-39    not a fit any more
+
+Include EVERY call given, the poor fits included - those are the ones the
+shortlist most needs told about. Omitting one leaves a stale score on screen."""
+
+
 _corpus_cache: dict = {}
 
 
@@ -1061,18 +1097,18 @@ def _focus_corpus(conn):
     rather than on anything that varies per request.
     """
     sig = conn.execute(
-        """SELECT count(*) c, coalesce(max(a.assessed_at), '') m
+        f"""SELECT count(*) c, coalesce(max(a.assessed_at), '') m
              FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-            WHERE o.deadline IS NULL OR o.deadline >= date('now')"""
+            WHERE {db.LIVE}"""
     ).fetchone()
     key = (sig["c"], sig["m"])
     if _corpus_cache.get("key") == key:
         return _corpus_cache["chunks"], _corpus_cache["n"], _corpus_cache["trimmed"]
 
     rows = conn.execute(
-        """SELECT o.id, o.title, o.agency, o.deadline, a.summary, a.rationale
+        f"""SELECT o.id, o.title, o.agency, o.deadline, a.summary, a.rationale
              FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-            WHERE o.deadline IS NULL OR o.deadline >= date('now')
+            WHERE {db.LIVE}
             ORDER BY o.id"""
     ).fetchall()
 
@@ -1219,11 +1255,15 @@ def focus(request: Request, payload: dict = Body(...)):
         # path, where 50 synopses at 1,500 chars is ~19k tokens in a single
         # one.
         marks = ",".join("?" * len(ids))
+        # {db.LIVE} again, even though the shortlist was drawn from a corpus
+        # that already excluded closed calls: the corpus is cached, and a call
+        # that closes between the cache being filled and this query running
+        # would otherwise reach the ranking prompt.
         rows = {r["id"]: r for r in conn.execute(
             f"""SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling,
                        o.synopsis, a.score, a.summary
                   FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-                 WHERE o.id IN ({marks})""", ids)}
+                 WHERE o.id IN ({marks}) AND {db.LIVE}""", ids)}
         detail = []
         for i in ids:
             r = rows.get(i)
@@ -1270,6 +1310,105 @@ def focus(request: Request, payload: dict = Body(...)):
                 "chunks": len(chunks), "usage": usage}
     finally:
         conn.close()
+
+
+@app.post("/api/rescore")
+def rescore(request: Request, payload: dict = Body(...)):
+    """Score a shortlist against an idea, and recommend one of them.
+
+    Stateless, like /api/focus. The shortlist lives in the caller's browser;
+    this receives the ids and the idea, looks the calls up in the catalogue -
+    public data the server already holds - and scores them. Nothing about the
+    idea or the shortlist is written anywhere.
+
+    Cheap enough to press after every edit to the idea: a handful of calls at
+    1,500 chars each is around 2k prompt tokens and a few seconds, against
+    ~96k and over a minute for a search of the whole catalogue.
+    """
+    auth.require_user(request)
+    _rate_limit(f"focus:{_client(request)}", FOCUS_PER_HOUR)
+
+    idea = str(payload.get("idea") or "").strip()[:MAX_IDEA_CHARS]
+    ids = payload.get("ids")
+    api_key = str(payload.get("api_key") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    base_url = _check_base_url(
+        str(payload.get("base_url") or "https://lumen.ncsa.illinois.edu/v1").strip())
+
+    if not idea:
+        raise HTTPException(400, "idea is required; there is nothing to score against")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "ids must be a non-empty list")
+    ids = [str(i) for i in ids][:60]
+    if not api_key:
+        raise HTTPException(400, "api_key is required; this server holds no key of its own")
+    if not model:
+        raise HTTPException(400, "model is required")
+
+    conn = _conn()
+    try:
+        # The ids come from the caller, i.e. from a focus shortlist that may
+        # have been on screen for a while. Filtering here rather than trusting
+        # that provenance is what keeps a call that has closed since out of
+        # the prompt; an id dropped here falls out of `ordered` below exactly
+        # as an unknown id already does.
+        rows = {r["id"]: r for r in conn.execute(
+            f"""SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling, o.synopsis,
+                      a.summary
+                 FROM opportunities o LEFT JOIN assessments a ON a.opportunity_id = o.id
+                WHERE o.id IN ({",".join("?" * len(ids))}) AND {db.LIVE}""", ids)}
+    finally:
+        conn.close()
+    # Keep the caller's order: it is what their screen shows, and a shortlist
+    # reordered underneath them by an id lookup would be disorienting.
+    ordered = [rows[i] for i in ids if i in rows]
+    if not ordered:
+        raise HTTPException(404, "none of those calls are still open")
+
+    detail = "\n\n".join(
+        f"{r['id']} | {r['title']} | {r['agency'] or ''} | "
+        f"deadline {r['deadline'] or 'rolling'} | award {r['award_ceiling'] or 'not stated'}\n"
+        f"{' '.join((r['summary'] or '').split())}\n"
+        f"{' '.join((r['synopsis'] or '').split())[:FOCUS_RERANK_CHARS]}"
+        for r in ordered)
+
+    raw, usage = _focus_post(
+        base_url, api_key, model, FOCUS_RESCORE_SYSTEM,
+        "SHORTLISTED CALLS:\n\n" + detail + f"\n\nTHE IDEA:\n{idea}",
+        max_tokens=4000)
+
+    cleaned = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    data = {}
+    for candidate in (cleaned, match.group(0) if match else None):
+        if not candidate:
+            continue
+        try:
+            v = json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(v, dict):
+            data = v
+            break
+
+    known = set(rows)
+    out = []
+    for item in data.get("calls") or []:
+        if not isinstance(item, dict):
+            continue
+        rid = str(item.get("id") or "").strip()
+        if rid not in known:
+            continue        # an invented id is dropped, never fabricated back
+        try:
+            aff = max(0, min(100, int(float(item.get("affinity")))))
+        except (TypeError, ValueError):
+            continue
+        out.append({"id": rid, "affinity": aff, "why": str(item.get("why") or "")[:400]})
+    if not out:
+        raise HTTPException(502, "the model returned no usable scores")
+
+    return {"recommendation": str(data.get("recommendation") or "")[:2000],
+            "items": out, "scored": len(out), "of": len(ordered), "usage": usage}
 
 
 @app.get("/opportunities.json")
