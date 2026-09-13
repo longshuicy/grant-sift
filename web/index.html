@@ -54,24 +54,38 @@
   }
   .alarm b { font-weight: 600; color: var(--ink-soft); }
 
-  /* ---- Grafana ops/signal embed (anonymous Viewer kiosk) ---- */
+  /* ---- Grafana ops/signal: quiet toggle, short panel when open ---- */
   .stats-embed {
-    margin: 18px 0 0;
+    margin: 10px 0 0;
+    padding-bottom: 2px;
+  }
+  .stats-embed-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin: 0; padding: 0;
+    font: inherit; font-size: 12.5px; color: var(--ink-faint);
+    background: none; border: 0; cursor: pointer;
+  }
+  .stats-embed-toggle:hover { color: var(--ink-soft); }
+  .stats-embed-toggle:focus-visible {
+    outline: 2px solid var(--moss); outline-offset: 2px;
+  }
+  .stats-embed-toggle .chev { font-size: 10px; }
+  .stats-embed-panel {
+    margin-top: 8px;
     border: 1px solid var(--rule);
-    border-radius: 3px;
-    overflow: hidden;
     background: var(--card);
   }
-  .stats-embed-cap {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--rule);
-    font-size: 12.5px; color: var(--ink-soft);
-  }
-  .stats-embed-cap a { color: var(--moss); }
-  .stats-embed iframe {
-    display: block; width: 100%; height: min(52vh, 520px);
+  .stats-embed-panel iframe {
+    display: block; width: 100%; height: 180px;
     border: 0; background: var(--card);
   }
+  .stats-embed-open {
+    display: block; text-align: right;
+    padding: 5px 10px 6px;
+    font-size: 12px; color: var(--moss); text-decoration: none;
+    border-top: 1px solid var(--rule);
+  }
+  .stats-embed-open:hover { text-decoration: underline; }
 
   /* ---- controls ---- */
   .controls {
@@ -432,12 +446,16 @@
   </header>
 
   <section class="stats-embed" id="stats-embed" hidden>
-    <div class="stats-embed-cap">
-      <span>Ops &amp; signal (last 90 days)</span>
-      <a id="stats-embed-open" href="#" target="_blank" rel="noopener">Open in Grafana</a>
+    <button type="button" class="stats-embed-toggle" id="stats-embed-toggle"
+            aria-expanded="false" aria-controls="stats-embed-panel">
+      Ops &amp; signal <span class="chev" aria-hidden="true">▸</span>
+    </button>
+    <div class="stats-embed-panel" id="stats-embed-panel" hidden>
+      <iframe id="stats-embed-frame" title="Grant Sift ops and signal charts"
+              loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <a class="stats-embed-open" id="stats-embed-open" href="#"
+         target="_blank" rel="noopener">Open in Grafana ↗</a>
     </div>
-    <iframe id="stats-embed-frame" title="Grant Sift ops and signal charts"
-            loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
   </section>
 
   <div class="controls">
@@ -1694,18 +1712,31 @@ fetch("opportunities.json")
     document.getElementById("asof").textContent = "no data";
   });
 
-// Optional Grafana kiosk embed (anonymous Viewer). Hidden when unset.
+// Optional Grafana kiosk embed: collapsed by default; load iframe on first open.
 fetch("/api/config")
   .then(r => r.ok ? r.json() : null)
   .then(cfg => {
     const url = cfg && cfg.grafana_embed_url;
     if (!url) return;
     const box = document.getElementById("stats-embed");
+    const toggle = document.getElementById("stats-embed-toggle");
+    const panel = document.getElementById("stats-embed-panel");
     const frame = document.getElementById("stats-embed-frame");
     const open = document.getElementById("stats-embed-open");
-    frame.src = url;
-    open.href = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "")
-      || url;
+    const chev = toggle.querySelector(".chev");
+    const fullUrl = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "") || url;
+    open.href = fullUrl;
+    let loaded = false;
+    toggle.addEventListener("click", () => {
+      const openNow = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", openNow ? "true" : "false");
+      panel.hidden = !openNow;
+      chev.textContent = openNow ? "▾" : "▸";
+      if (openNow && !loaded) {
+        frame.src = url;
+        loaded = true;
+      }
+    });
     box.hidden = false;
   })
   .catch(() => {});
