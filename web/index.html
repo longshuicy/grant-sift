@@ -89,6 +89,8 @@
   .focusnote { font-size: 13px; color: var(--ink-soft); }
   .focusnote b { color: var(--ink); }
   .affinity { font-size: 12.5px; color: var(--ink-soft); margin: 2px 0 8px; }
+  .kept { font-size: 12.5px; color: var(--moss); }
+  .tight { color: var(--rust, #9a3b23); }
   .affinity b { color: var(--ink); font-weight: 500; }
   .filters {
     display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
@@ -364,6 +366,21 @@
     background: #fff; border: 1px solid var(--rule); padding: 18px 20px 20px;
   }
   .modal header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  /* Wraps rather than squeezing: a fixed-width note field next to a flexible
+     title turned every title into one word per line in a narrow pane. */
+  .bkitem { display: flex; align-items: baseline; gap: 8px; padding: 8px 0;
+            border-top: 1px dotted var(--rule); font-size: 13.5px; flex-wrap: wrap; }
+  .bkitem .rk { color: var(--ink-faint); min-width: 3em; text-align: center;
+                font-variant-numeric: tabular-nums; }
+  .bkitem .ti { flex: 1 1 16em; min-width: 0; }
+  .bkitem .rk b { font-size: 15px; color: var(--ink); font-weight: 600; }
+  .bkitem .rk .rklab { display: block; font-size: 10px; letter-spacing: .05em;
+                       text-transform: uppercase; color: var(--ink-faint); }
+  .shhead { font-size: 12.5px; color: var(--ink-soft); margin: 14px 0 2px; max-width: 60ch; }
+  #shelf-body textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px;
+                 padding: 8px; margin-bottom: 8px; resize: vertical;
+                 border: 1px solid var(--rule); border-radius: 3px; background: var(--card); }
+  .bkout { white-space: pre-wrap; font-size: 13.5px; margin-top: 8px; }
   .modal header h2 { margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 600; }
   .modal .x {
     margin-left: auto; font: inherit; font-size: 13px; cursor: pointer;
@@ -435,6 +452,12 @@
           <button type="button" class="vote" id="open-sources">Where calls come from</button>
         </div>
         <div class="cfgsec">
+          <h3>Shortlist</h3>
+          <p class="desc">Calls you are weighing up, kept in this browser only.
+            Nothing about it reaches the server.</p>
+          <button type="button" class="vote" id="open-shelf">Open shortlist</button>
+        </div>
+        <div class="cfgsec">
           <h3>Email digests</h3>
           <p class="desc">Nightly digests of new high-relevance calls. Sent to
             your NCSA / Illinois address after the overnight run. Uncheck all and
@@ -458,6 +481,7 @@
         placeholder="Describe the idea in your own words &mdash; a reproducible pipeline for cryo-EM data, say, and that you would need a domain PI to host it."></textarea>
       <div class="focusacts">
         <button type="button" class="vote" id="focus-go">Find matching calls</button>
+        <button type="button" class="vote" id="focus-keep" hidden>Keep these</button>
         <button type="button" class="vote" id="focus-clear" hidden>&times; clear</button>
         <span class="focusnote" id="focus-note"></span>
       </div>
@@ -537,6 +561,16 @@
       merged with it on the next ingest. A URL already covered by either list is
       refused rather than added twice: the same funder under two names would be
       fetched twice and each copy would report itself healthy.</div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="shelf-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="shelf-title">
+    <header>
+      <h2 id="shelf-title">Shortlist</h2>
+      <button type="button" class="x" id="shelf-close" aria-label="Close">Close</button>
+    </header>
+    <div id="shelf-body"></div>
   </div>
 </div>
 
@@ -865,6 +899,7 @@ function rowHTML(o) {
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
         <button class="vote" data-vote="down" data-id="${esc(o.id)}" aria-pressed="false" title="Not for us: score it lower next time">&#9661; not for us</button>
         <button class="act" data-chat="${esc(o.id)}">Ask about this call</button>
+        ${shelfHas(o.id) ? `<span class="kept">in your shortlist</span>` : ""}
         <span class="votenote" data-fb="${esc(o.id)}"></span>
       </div>
       <div class="fbbox" data-fbbox="${esc(o.id)}">
@@ -1021,6 +1056,7 @@ function setFocusNote(html, busy) {
 
 function clearFocus() {
   FOCUS = null;
+  document.getElementById("focus-keep").hidden = true;
   const sel = document.getElementById("sort");
   sel.querySelector('option[value="affinity"]').hidden = true;
   if (SORT === "affinity") { SORT = "score"; sel.value = "score"; }
@@ -1059,6 +1095,7 @@ async function runFocus() {
     const n = Object.keys(byId).length;
     if (!n) {
       FOCUS = null;
+      document.getElementById("focus-keep").hidden = true;
       setFocusNote(`Nothing matched, out of <b>${data.searched}</b> open calls. `
                    + "Try describing the work rather than the field.");
       document.getElementById("focus-clear").hidden = false;
@@ -1066,6 +1103,7 @@ async function runFocus() {
       return;
     }
     FOCUS = { idea, byId, searched: data.searched };
+    document.getElementById("focus-keep").hidden = false;
     const sel = document.getElementById("sort");
     sel.querySelector('option[value="affinity"]').hidden = false;
     SORT = "affinity"; sel.value = "affinity";
@@ -1080,11 +1118,180 @@ async function runFocus() {
 }
 
 document.getElementById("focus-go").addEventListener("click", runFocus);
+document.getElementById("focus-keep").addEventListener("click",
+  e => keepAll(e.currentTarget));
 document.getElementById("focus-clear").addEventListener("click", clearFocus);
 // Enter submits, newline still available: the box is prose, but the common
 // case is one sentence and a reach for the mouse is friction.
 document.getElementById("idea").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); runFocus(); }
+});
+
+// ---- Shortlist: narrowing a search down to one call ----------------------
+//
+// Lives in this browser and nowhere else. The server stores no part of it -
+// not the idea, not the calls, not the notes - which is the same posture the
+// chat key and transcripts already take. The cost is that it is per browser;
+// the panel says so rather than letting anyone assume otherwise.
+//
+// The loop: write the idea, search, keep what is worth a look, prune, and let
+// reading them teach you what the idea actually is. Then edit it and score
+// again. Searching is cheap and repeatable; the idea is the part that improves.
+
+const SHELF_KEY = "gs.shortlist";
+let SHELF = { idea: "", items: [], recommendation: "" };
+
+function loadShelf() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SHELF_KEY) || "null");
+    if (raw && Array.isArray(raw.items)) SHELF = { recommendation: "", ...raw };
+  } catch (e) {}
+}
+function saveShelf() {
+  try { localStorage.setItem(SHELF_KEY, JSON.stringify(SHELF)); } catch (e) {}
+}
+const shelfHas = id => SHELF.items.some(i => i.id === id);
+
+function keepAll(btn) {
+  if (!FOCUS) return;
+  const before = SHELF.items.length;
+  for (const r of Object.values(FOCUS.byId)) {
+    if (!shelfHas(r.id)) SHELF.items.push({ id: r.id, affinity: r.affinity, why: r.why });
+  }
+  // The idea comes with the calls. Someone who has just written a paragraph
+  // should not be asked to retype it into the shortlist.
+  if (!SHELF.idea) SHELF.idea = FOCUS.idea;
+  SHELF.items.sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0));
+  saveShelf();
+  render();
+  const added = SHELF.items.length - before;
+  setFocusNote(`Kept <b>${added}</b>`
+    + (added < Object.keys(FOCUS.byId).length
+        ? ` (${Object.keys(FOCUS.byId).length - added} already there)` : "")
+    + ` &mdash; open <b>Shortlist</b> above to prune and compare.`);
+}
+
+function shelfRowHTML(it) {
+  const o = DATA.find(d => d.id === it.id) || {};
+  const a = daysAway(o.deadline);
+  const when = a === null ? `<span class="cold">rolling</span>`
+    : a < 0 ? `<span class="cold">passed</span>`
+    : `<span class="${a <= 30 ? "tight" : "cold"}">${a} day${a === 1 ? "" : "s"} left</span>`;
+  // The bare number needs saying out loud. Everywhere else on this page a
+  // score out of 100 is the group's relevance score; here it is the fit to the
+  // idea above, which can disagree with it completely - a call the group would
+  // love that has nothing to do with this idea belongs at the bottom.
+  return `<div class="bkitem">
+    <span class="rk" title="Fit to your idea, not the dashboard's relevance score">${
+      it.affinity != null ? `<b>${it.affinity}</b><span class="rklab">fit</span>` : "&ndash;"}</span>
+    <span class="ti">${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title || it.id)}</a>`
+                            : esc(o.title || it.id)}<br>
+      <span class="cold">${esc(o.agency || "")}${
+        o.score != null ? ` &middot; relevance ${o.score}/100` : ""}</span> &nbsp;${when}
+      ${it.why ? `<br><span class="cold">${esc(it.why)}</span>` : ""}</span>
+    <button class="vote" data-shrm="${esc(it.id)}" title="Remove from the shortlist">&times;</button>
+  </div>`;
+}
+
+function renderShelf() {
+  const body = document.getElementById("shelf-body");
+  body.innerHTML = `
+    <p class="desc">Kept in this browser only &mdash; the server stores none of it.
+      Clear your browser data and it is gone, and it will not follow you to
+      another machine.</p>
+    <textarea id="sh-idea" rows="3" maxlength="4000"
+      placeholder="What are you trying to do? Edit this as you learn what you are really after.">${esc(SHELF.idea || "")}</textarea>
+    <div class="focusacts">
+      <button class="vote" id="sh-search">Search again with this</button>
+      <button class="vote" id="sh-score" ${SHELF.items.length ? "" : "disabled"}>Score &amp; recommend</button>
+      <button class="vote" id="sh-clear" ${SHELF.items.length ? "" : "disabled"}>Empty the shortlist</button>
+      <span class="hint" id="sh-hint"></span>
+    </div>
+    ${SHELF.recommendation ? `<div class="bkout">${esc(SHELF.recommendation)}</div>` : ""}
+    ${SHELF.items.length ? `<p class="shhead"><b>Fit to your idea</b> &mdash; scored
+        against the text above, not the same thing as the dashboard's relevance
+        score, which is how well a call suits the group overall.</p>`
+      + SHELF.items.map(shelfRowHTML).join("")
+                         : `<p class="desc">Nothing kept yet. Describe an idea above the
+                            call list, search, then <b>keep these</b>.</p>`}`;
+}
+
+async function scoreShelf(btn) {
+  const hint = document.getElementById("sh-hint");
+  SHELF.idea = document.getElementById("sh-idea").value.trim();
+  saveShelf();
+  if (!SHELF.idea) { hint.textContent = "Write the idea first."; return; }
+  const { key, model, base } = keyBar();
+  if (!key) { hint.textContent = "Add your API key in Personalize first."; return; }
+  btn.disabled = true; hint.textContent = "Scoring…";
+  try {
+    const d = await (async () => {
+      const r = await fetch("/api/rescore", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea: SHELF.idea, ids: SHELF.items.map(i => i.id),
+                               api_key: key, model, base_url: base }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || `${r.status}`);
+      return j;
+    })();
+    const by = Object.fromEntries(d.items.map(i => [i.id, i]));
+    for (const it of SHELF.items) {
+      if (by[it.id]) { it.affinity = by[it.id].affinity; it.why = by[it.id].why; }
+    }
+    SHELF.items.sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0));
+    SHELF.recommendation = d.recommendation || "";
+    saveShelf();
+    renderShelf();
+    document.getElementById("sh-hint").textContent = `scored ${d.scored} of ${d.of}`;
+  } catch (e) {
+    hint.textContent = String(e.message || e).slice(0, 140);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("shelf-body").addEventListener("click", async e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.shrm) {
+    SHELF.items = SHELF.items.filter(i => i.id !== b.dataset.shrm);
+    saveShelf(); renderShelf(); render(); return;
+  }
+  if (b.id === "sh-clear") {
+    if (!confirm("Empty the shortlist? The idea text is kept.")) return;
+    SHELF.items = []; SHELF.recommendation = "";
+    saveShelf(); renderShelf(); render(); return;
+  }
+  if (b.id === "sh-search") {
+    // One canonical idea: the search box is seeded from the shortlist rather
+    // than the two drifting into separate texts.
+    SHELF.idea = document.getElementById("sh-idea").value.trim();
+    saveShelf();
+    document.getElementById("idea").value = SHELF.idea;
+    closeShelf();
+    return runFocus();
+  }
+  if (b.id === "sh-score") return scoreShelf(b);
+});
+
+document.getElementById("shelf-body").addEventListener("input", e => {
+  if (e.target.id === "sh-idea") { SHELF.idea = e.target.value; saveShelf(); }
+});
+
+function openShelf() {
+  const m = document.getElementById("shelf-modal");
+  m.hidden = false; m.classList.add("on");
+  renderShelf();
+}
+function closeShelf() {
+  const m = document.getElementById("shelf-modal");
+  m.hidden = true; m.classList.remove("on");
+}
+document.getElementById("open-shelf").addEventListener("click", openShelf);
+document.getElementById("shelf-close").addEventListener("click", closeShelf);
+document.getElementById("shelf-modal").addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeShelf();
 });
 
 function turnHTML(t) {
@@ -1760,6 +1967,7 @@ function boot(payload) {
   }
   document.getElementById("foot").textContent =
     `Generated ${payload.generated_at || "unknown"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
+  loadShelf();
   render();
   probeAPI();
 }
