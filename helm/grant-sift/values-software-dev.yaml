@@ -71,6 +71,87 @@ config:
   GRANT_SIFT_DAILY_AT: "06:00"
   GRANT_SIFT_DAILY_TZ: America/Chicago
   GRANT_SIFT_DAILY_CATCHUP: "on"
+  # Public Grafana Ops & Signal board (kiosk), embedded under the app header.
+  # Empty hides the iframe. Requires grafana auth.anonymous + allow_embedding.
+  GRANT_SIFT_GRAFANA_EMBED_URL: "https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&kiosk&refresh=5m"
+
+# Grafana OSS in this namespace (Infinity → grant-sift:8080/api/stats).
+# Create admin + OIDC client secret once (see GRAFANA.md). No Prometheus.
+# Login: same Keycloak realm as the dashboard (Generic OAuth).
+grafana:
+  enabled: true
+  keycloakAuth:
+    enabled: true
+    clientId: grant-sift-grafana
+  admin:
+    existingSecret: grant-sift-grafana
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    server:
+      root_url: https://grant-sift-grafana.software-dev.ncsa.illinois.edu/
+      domain: grant-sift-grafana.software-dev.ncsa.illinois.edu
+    users:
+      auto_assign_org_role: Editor
+    security:
+      allow_embedding: true
+      cookie_samesite: none
+      cookie_secure: true
+    auth:
+      disable_login_form: false   # keep admin break-glass
+      oauth_auto_login: false
+    auth.anonymous:
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
+    auth.generic_oauth:
+      enabled: true
+      name: Keycloak
+      allow_sign_up: true
+      client_id: grant-sift-grafana
+      scopes: openid email profile
+      email_attribute_path: email
+      login_attribute_path: preferred_username
+      name_attribute_path: name
+      use_pkce: true
+      # URLs + client_secret come from env (ConfigMap / Secret) below.
+  envValueFrom:
+    GF_AUTH_GENERIC_OAUTH_AUTH_URL:
+      configMapKeyRef:
+        name: grant-sift-keycloak
+        key: auth-url
+    GF_AUTH_GENERIC_OAUTH_TOKEN_URL:
+      configMapKeyRef:
+        name: grant-sift-keycloak
+        key: token-url
+    GF_AUTH_GENERIC_OAUTH_API_URL:
+      configMapKeyRef:
+        name: grant-sift-keycloak
+        key: api-url
+    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+      secretKeyRef:
+        name: grant-sift-grafana
+        key: client-secret
+  persistence:
+    enabled: true
+    storageClassName: nfs-taiga
+    size: 2Gi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grant-sift-grafana.software-dev.ncsa.illinois.edu
+    path: /
+    pathType: Prefix
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+      traefik.ingress.kubernetes.io/router.middlewares: redirect-web-to-443@internal
+    tls:
+      - hosts:
+          - grant-sift-grafana.software-dev.ncsa.illinois.edu
+        secretName: grant-sift-grafana-tls
 
 # Users hit oauth2-proxy Ingress, not the app Service directly.
 ingress:

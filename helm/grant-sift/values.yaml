@@ -112,6 +112,9 @@ config:
   GRANT_SIFT_SMTP_HOST: ""
   GRANT_SIFT_SMTP_PORT: "25"
   GRANT_SIFT_FROM: grant-sift@example.com
+  # Public Grafana embed under the header. Empty = hide. Example:
+  # https://grant-sift-grafana.example.com/d/grant-sift-ops-signal?orgId=1&kiosk&theme=light
+  GRANT_SIFT_GRAFANA_EMBED_URL: ""
 
 # Keycloak front door (issuer built as {{url}}/realms/{{realm}}).
 # oauth2-proxy reads issuer-url via env from the grant-sift-keycloak ConfigMap.
@@ -192,3 +195,71 @@ oauth2-proxy:
     requests:
       cpu: 50m
       memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# Grafana OSS (optional). Same namespace; no Prometheus.
+# Charts telemetry_daily via Infinity → http://grant-sift:8080/api/stats
+# Optional Keycloak login: same realm as oauth2-proxy (Generic OAuth).
+# Docs: GRAFANA.md
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: false
+  fullnameOverride: grant-sift-grafana
+  # Parent-chart only (not a grafana subchart key). When true, Keycloak
+  # ConfigMap is rendered even if oauth2-proxy is off, and software-dev
+  # wires Generic OAuth env from it.
+  keycloakAuth:
+    enabled: false
+    clientId: grant-sift-grafana
+  # Override in values-secrets / existingSecret — never commit a real password.
+  adminUser: admin
+  adminPassword: ""
+  # Prefer an existing Secret (keys: admin-user, admin-password).
+  # For Keycloak OAuth also store client-secret in the same Secret (see GRAFANA.md).
+  admin:
+    existingSecret: ""
+    userKey: admin-user
+    passwordKey: admin-password
+  plugins:
+    - yesoreyeram-infinity-datasource
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Grant Sift Stats
+          uid: grant-sift-stats
+          type: yesoreyeram-infinity-datasource
+          access: proxy
+          isDefault: true
+          editable: true
+          jsonData:
+            auth_method: none
+            allowed_hosts:
+              - http://grant-sift:8080
+  # Load starter dashboards from ConfigMaps labeled grafana_dashboard=1
+  # (see templates/grafana-dashboard-configmap.yaml).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folder: /tmp/dashboards
+      provider:
+        name: grant-sift
+        folder: Grant Sift
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+

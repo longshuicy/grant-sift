@@ -41,7 +41,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import adapters, auth, db, pipeline
+from . import adapters, auth, db, pipeline, telemetry
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -149,6 +149,13 @@ def health():
         return {"ok": True, "opportunities": n, "auth": auth.status()}
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+
+
+@app.get("/api/config")
+def public_config():
+    """Non-secret UI knobs (e.g. Grafana embed URL). Safe to call unauthenticated."""
+    embed = (os.environ.get("GRANT_SIFT_GRAFANA_EMBED_URL") or "").strip()
+    return {"grafana_embed_url": embed or None}
 
 
 @app.get("/api/whoami")
@@ -577,6 +584,36 @@ def feedback_summary():
                 for r in rows
             }
         }
+    finally:
+        conn.close()
+
+
+@app.get("/api/stats")
+def stats(
+    metric: str | None = None,
+    since_days: int | None = 90,
+    day_from: str | None = None,
+    day_to: str | None = None,
+):
+    """Daily rollups for Grafana (Infinity / JSON).
+
+    Cluster-internal: point Grafana at http://grant-sift:8080/api/stats.
+    Rows come from telemetry_daily, filled by the nightly `daily` job (or
+    `python run.py telemetry`). No LLM. Filter with ?metric=category_count.
+    """
+    if since_days is not None and since_days < 0:
+        raise HTTPException(400, "since_days must be >= 0")
+    # Explicit day range wins over the rolling window.
+    window = None if (day_from or day_to) else since_days
+    conn = _conn()
+    try:
+        return telemetry.stats_payload(
+            conn,
+            metric=metric or None,
+            since_days=window,
+            day_from=day_from,
+            day_to=day_to,
+        )
     finally:
         conn.close()
 

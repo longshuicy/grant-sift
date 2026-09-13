@@ -19,3 +19,9 @@ dependencies:
     version: "7.12.15"
     repository: https://oauth2-proxy.github.io/manifests
     condition: oauth2-proxy.enabled
+  # Grafana OSS only (no Prometheus). Charts grant stats from /api/stats.
+  # https://github.com/grafana/helm-charts
+  - name: grafana
+    version: "10.5.15"
+    repository: https://grafana.github.io/helm-charts
+    condition: grafana.enabled
