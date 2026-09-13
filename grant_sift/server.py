@@ -153,9 +153,13 @@ def health():
 
 @app.get("/api/config")
 def public_config():
-    """Non-secret UI knobs (e.g. Grafana embed URL). Safe to call unauthenticated."""
-    embed = (os.environ.get("GRANT_SIFT_GRAFANA_EMBED_URL") or "").strip()
-    return {"grafana_embed_url": embed or None}
+    """Non-secret UI knobs (e.g. Grafana board URL). Safe to call unauthenticated."""
+    # Prefer GRAFANA_URL; EMBED_URL kept as alias for older overlays.
+    url = (
+        (os.environ.get("GRANT_SIFT_GRAFANA_URL") or "").strip()
+        or (os.environ.get("GRANT_SIFT_GRAFANA_EMBED_URL") or "").strip()
+    )
+    return {"grafana_url": url or None}
 
 
 @app.get("/api/whoami")

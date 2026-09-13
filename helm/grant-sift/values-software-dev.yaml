@@ -71,9 +71,8 @@ config:
   GRANT_SIFT_DAILY_AT: "06:00"
   GRANT_SIFT_DAILY_TZ: America/Chicago
   GRANT_SIFT_DAILY_CATCHUP: "on"
-  # Public Grafana Ops & Signal board (kiosk), embedded under the app header.
-  # Empty hides the iframe. Requires grafana auth.anonymous + allow_embedding.
-  GRANT_SIFT_GRAFANA_EMBED_URL: "https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&kiosk&refresh=5m"
+  # Header-strip "Ops & signal" link (opens Grafana; no iframe). Empty hides it.
+  GRANT_SIFT_GRAFANA_URL: "https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&refresh=5m"
 
 # Grafana OSS in this namespace (Infinity → grant-sift:8080/api/stats).
 # Create admin + OIDC client secret once (see GRAFANA.md). No Prometheus.

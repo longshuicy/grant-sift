@@ -42,6 +42,13 @@
   .stat b { font-family: var(--serif); font-size: 26px; font-weight: 600; display: block; line-height: 1.1; }
   .stat i { font-style: normal; font-size: 12.5px; color: var(--ink-soft); }
   .stat.warn b { color: var(--ember); }
+  a.stat {
+    text-decoration: none; color: inherit; cursor: pointer;
+  }
+  a.stat:hover b { color: var(--moss); }
+  a.stat:focus-visible {
+    outline: 2px solid var(--moss); outline-offset: 2px;
+  }
 
   /* Sits inside the strip, so it lands above the rule rather than pushing the
      list down. Muted on purpose: this is a standing caveat about coverage, not
@@ -53,39 +60,6 @@
     font-size: 12.5px; color: var(--ink-faint);
   }
   .alarm b { font-weight: 600; color: var(--ink-soft); }
-
-  /* ---- Grafana ops/signal: quiet toggle, short panel when open ---- */
-  .stats-embed {
-    margin: 10px 0 0;
-    padding-bottom: 2px;
-  }
-  .stats-embed-toggle {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin: 0; padding: 0;
-    font: inherit; font-size: 12.5px; color: var(--ink-faint);
-    background: none; border: 0; cursor: pointer;
-  }
-  .stats-embed-toggle:hover { color: var(--ink-soft); }
-  .stats-embed-toggle:focus-visible {
-    outline: 2px solid var(--moss); outline-offset: 2px;
-  }
-  .stats-embed-toggle .chev { font-size: 10px; }
-  .stats-embed-panel {
-    margin-top: 8px;
-    border: 1px solid var(--rule);
-    background: var(--card);
-  }
-  .stats-embed-panel iframe {
-    display: block; width: 100%; height: 180px;
-    border: 0; background: var(--card);
-  }
-  .stats-embed-open {
-    display: block; text-align: right;
-    padding: 5px 10px 6px;
-    font-size: 12px; color: var(--moss); text-decoration: none;
-    border-top: 1px solid var(--rule);
-  }
-  .stats-embed-open:hover { text-decoration: underline; }
 
   /* ---- controls ---- */
   .controls {
@@ -400,6 +374,10 @@
     <div class="stat"><b id="n-open">..</b><i>open calls</i></div>
     <div class="stat warn"><b id="n-soon">..</b><i>close within 30 days</i></div>
     <div class="stat"><b id="n-match">..</b><i>match a past collaborator</i></div>
+    <a class="stat" id="grafana-link" hidden href="#" target="_blank" rel="noopener"
+       title="Ops and ranking charts in Grafana">
+      <b>Ops</b><i>&amp; signal</i>
+    </a>
     <div class="whoami" id="whoami" hidden>
       <div class="who" id="who"></div>
       <button type="button" class="cfgbtn" id="cfgbtn" aria-expanded="false"
@@ -444,19 +422,6 @@
     </div>
     <div id="alarm"></div>
   </header>
-
-  <section class="stats-embed" id="stats-embed" hidden>
-    <button type="button" class="stats-embed-toggle" id="stats-embed-toggle"
-            aria-expanded="false" aria-controls="stats-embed-panel">
-      Ops &amp; signal <span class="chev" aria-hidden="true">▸</span>
-    </button>
-    <div class="stats-embed-panel" id="stats-embed-panel" hidden>
-      <iframe id="stats-embed-frame" title="Grant Sift ops and signal charts"
-              loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-      <a class="stats-embed-open" id="stats-embed-open" href="#"
-         target="_blank" rel="noopener">Open in Grafana ↗</a>
-    </div>
-  </section>
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
@@ -1712,32 +1677,16 @@ fetch("opportunities.json")
     document.getElementById("asof").textContent = "no data";
   });
 
-// Optional Grafana kiosk embed: collapsed by default; load iframe on first open.
+// Optional Grafana link in the header strip (same row as open/soon/match).
 fetch("/api/config")
   .then(r => r.ok ? r.json() : null)
   .then(cfg => {
-    const url = cfg && cfg.grafana_embed_url;
+    const url = cfg && (cfg.grafana_url || cfg.grafana_embed_url);
     if (!url) return;
-    const box = document.getElementById("stats-embed");
-    const toggle = document.getElementById("stats-embed-toggle");
-    const panel = document.getElementById("stats-embed-panel");
-    const frame = document.getElementById("stats-embed-frame");
-    const open = document.getElementById("stats-embed-open");
-    const chev = toggle.querySelector(".chev");
-    const fullUrl = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "") || url;
-    open.href = fullUrl;
-    let loaded = false;
-    toggle.addEventListener("click", () => {
-      const openNow = toggle.getAttribute("aria-expanded") !== "true";
-      toggle.setAttribute("aria-expanded", openNow ? "true" : "false");
-      panel.hidden = !openNow;
-      chev.textContent = openNow ? "▾" : "▸";
-      if (openNow && !loaded) {
-        frame.src = url;
-        loaded = true;
-      }
-    });
-    box.hidden = false;
+    const link = document.getElementById("grafana-link");
+    // Prefer a normal dashboard URL (drop kiosk if present).
+    link.href = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "") || url;
+    link.hidden = false;
   })
   .catch(() => {});
 </script>
