@@ -192,3 +192,63 @@ oauth2-proxy:
     requests:
       cpu: 50m
       memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# Grafana OSS (optional). Same namespace; no Prometheus.
+# Charts telemetry_daily via Infinity → http://grant-sift:8080/api/stats
+# Docs: GRAFANA.md
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: false
+  fullnameOverride: grant-sift-grafana
+  # Override in values-secrets / existingSecret — never commit a real password.
+  adminUser: admin
+  adminPassword: ""
+  # Prefer an existing Secret (keys: admin-user, admin-password).
+  admin:
+    existingSecret: ""
+    userKey: admin-user
+    passwordKey: admin-password
+  plugins:
+    - yesoreyeram-infinity-datasource
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Grant Sift Stats
+          uid: grant-sift-stats
+          type: yesoreyeram-infinity-datasource
+          access: proxy
+          isDefault: true
+          editable: true
+          jsonData:
+            auth_method: none
+            allowed_hosts:
+              - http://grant-sift:8080
+  # Load starter dashboards from ConfigMaps labeled grafana_dashboard=1
+  # (see templates/grafana-dashboard-configmap.yaml).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folder: /tmp/dashboards
+      provider:
+        name: grant-sift
+        folder: Grant Sift
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+

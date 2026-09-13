@@ -1,0 +1,12 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grant-sift.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "grant-sift.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  grant-sift-ops-signal.json: |-
+{{ .Files.Get "dashboards/grant-sift-ops-signal.json" | indent 4 }}
+{{- end }}

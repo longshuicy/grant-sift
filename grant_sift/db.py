@@ -123,6 +123,18 @@ CREATE TABLE IF NOT EXISTS sent_log (
     sent_at         TEXT,
     PRIMARY KEY (feed, opportunity_id)
 );
+
+-- Nightly snapshots for Grafana (/api/stats). Written by the same in-app
+-- daily job as ingest/assess/export — not a separate CronJob.
+CREATE TABLE IF NOT EXISTS telemetry_daily (
+    day          TEXT NOT NULL,   -- YYYY-MM-DD (GRANT_SIFT_DAILY_TZ)
+    metric       TEXT NOT NULL,
+    dim          TEXT NOT NULL DEFAULT '',  -- source | category | aspect | feed | band
+    value        REAL NOT NULL,
+    recorded_at  TEXT NOT NULL,
+    PRIMARY KEY (day, metric, dim)
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_metric_day ON telemetry_daily(metric, day);
 """
 
 

@@ -1,6 +1,6 @@
 # Helm chart for Grant Sift
 
-Deploys the dashboard (`run.py serve`, which also runs the nightly pipeline in-process), a **PVC** for SQLite, and **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** in front of Keycloak.
+Deploys the dashboard (`run.py serve`, which also runs the nightly pipeline in-process), a **PVC** for SQLite, optional **Grafana OSS** (stats from `/api/stats`), and **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** in front of Keycloak.
 
 Not Argo-managed yet — hand-roll with `helm upgrade --install`. Cluster overlay: `values-software-dev.yaml`.
 
@@ -10,11 +10,14 @@ SQLite is a file on the PVC (`/data/grant-sift.db`); there is no separate SQLite
 
 | Resource | Purpose |
 |---|---|
-| Deployment + Service | Web UI, feedback, chat proxy (ClusterIP only) |
+| Deployment + Service | Web UI, feedback, chat proxy, `/api/stats` (ClusterIP only) |
 | oauth2-proxy + Ingress | Traefik → Keycloak login → app |
+| Grafana (optional) | OSS charts for `telemetry_daily`; Infinity → `http://grant-sift:8080/api/stats` |
 | PVC (`nfs-taiga`) | `/data`: `grant-sift.db` + `opportunities.json`, written by the Deployment only |
-| Secret | `GRANT_SIFT_LLM_API_KEY` (pipeline) + `grant-sift-oauth2` (OIDC client) |
-| ConfigMap | Non-secret env + mounted `roster.yaml` |
+| Secret | `GRANT_SIFT_LLM_API_KEY` (pipeline) + `grant-sift-oauth2` (OIDC) + `grant-sift-grafana` (admin) |
+| ConfigMap | Non-secret env + mounted `roster.yaml` + Grafana dashboards |
+
+Grafana setup details: **[GRAFANA.md](./GRAFANA.md)**.
 
 ## Prerequisites (software-dev)
 
@@ -96,6 +99,13 @@ kubectl -n grant-sift create secret generic grant-sift-oauth2 \
 kubectl -n grant-sift create configmap grant-sift-roster \
   --from-file=roster.yaml=config/roster.yaml \
   --from-file=ncsa_staff.yaml=config/ncsa_staff.yaml
+
+# Grafana admin (when grafana.enabled — software-dev turns it on)
+GRAFANA_PW="$(openssl rand -base64 24)"
+kubectl -n grant-sift create secret generic grant-sift-grafana \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$GRAFANA_PW"
+echo "Grafana admin password: $GRAFANA_PW"
 ```
 
 Update roster later:
@@ -129,6 +139,8 @@ kubectl -n grant-sift logs -l app.kubernetes.io/name=oauth2-proxy -f
 
 Open: **https://grant-sift.software-dev.ncsa.illinois.edu**  
 You should bounce through Keycloak (NCSA), then see the dashboard.
+
+Grafana (software-dev): **https://grant-sift-grafana.software-dev.ncsa.illinois.edu** — see [GRAFANA.md](./GRAFANA.md). Seed rollups with `python run.py telemetry` inside the app pod (also runs at the end of the nightly `daily` job).
 
 ### 5. Seed data (pick one)
 
@@ -194,6 +206,10 @@ September 2026. One replica, `strategy: Recreate`, and no second writer.
 
 `GRANT_SIFT_DAILY_CATCHUP: "on"` runs the pass at startup when the last one is
 over 20h old, so a restart past the scheduled minute does not skip a day.
+
+`run.py daily` ends with a **telemetry** rollup into `telemetry_daily` (same
+in-app schedule — not a separate CronJob). Grafana reads those rows via
+`/api/stats`. Details: [GRAFANA.md](./GRAFANA.md).
 
 `run.py daily` exports to `web/opportunities.json`, which the entrypoint has symlinked to `/data/opportunities.json`. The running pod serves that file directly (no rebuild, no separate JSON mount). Refresh the browser after a run to see updates (`Cache-Control: no-cache`).
 

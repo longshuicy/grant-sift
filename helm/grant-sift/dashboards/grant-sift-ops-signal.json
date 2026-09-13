@@ -1,0 +1,174 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Assess backlog",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=assess_backlog&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "value", "text": "backlog", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "title": "New opportunities / day",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=opps_new&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "value", "text": "new", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 40 } }, "overrides": [] }
+    },
+    {
+      "title": "Category mix (stock)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=category_count&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "dim", "text": "category", "type": "string" },
+            { "selector": "value", "text": "count", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Score bands (stock)",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=score_band&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "dim", "text": "band", "type": "string" },
+            { "selector": "value", "text": "count", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Feedback thumbs-down by aspect",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=feedback_down&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "dim", "text": "aspect", "type": "string" },
+            { "selector": "value", "text": "down", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } }, "overrides": [] }
+    },
+    {
+      "title": "Source zero-streak",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "grant-sift-stats" },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "url": "http://grant-sift:8080/api/stats?metric=source_zero_streak&since_days=90",
+          "url_options": { "method": "GET" },
+          "format": "table",
+          "root_selector": "rows",
+          "columns": [
+            { "selector": "day", "text": "day", "type": "timestamp" },
+            { "selector": "dim", "text": "source", "type": "string" },
+            { "selector": "value", "text": "streak", "type": "number" }
+          ]
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line" } }, "overrides": [] }
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["grant-sift", "telemetry"],
+  "templating": { "list": [] },
+  "time": { "from": "now-90d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Grant Sift — Ops & Signal",
+  "uid": "grant-sift-ops-signal",
+  "version": 1
+}

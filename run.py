@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Grant Sift CLI.
 
-    python run.py daily                 # one nightly pass: ingest, assess, export, digest
+    python run.py daily                 # nightly: ingest, assess, export, digest, telemetry
     python run.py ingest                # fetch and prefilter only
     python run.py assess                # classify and match anything unassessed
     python run.py export                # write web/opportunities.json
     python run.py digest --feed closing-soon [--send]
+    python run.py telemetry             # write telemetry_daily for Grafana (/api/stats)
     python run.py feedback <opp_id> up|down "optional note"
     python run.py status                # what ran, what is stale
     python run.py serve                 # dashboard + feedback + chat proxy
@@ -20,7 +21,7 @@ import traceback
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 
-from grant_sift import db, pipeline
+from grant_sift import db, pipeline, telemetry
 
 DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 SMTP_HOST = os.environ.get("GRANT_SIFT_SMTP_HOST", "localhost")
@@ -127,6 +128,16 @@ def cmd_daily(conn, args):
     for feed in pipeline.FEEDS:
         args.feed, args.since, args.send = feed, 7, send
         cmd_digest(conn, args)
+    # Same in-app nightly path — no separate k8s CronJob for telemetry.
+    cmd_telemetry(conn, args)
+
+
+def cmd_telemetry(conn, args):
+    """Write today's telemetry_daily rollup (also runs at the end of `daily`)."""
+    day = getattr(args, "day", None) or None
+    n = telemetry.record_daily(conn, day=day)
+    label = day or telemetry.calendar_day()
+    print(f"telemetry: {n} row(s) for {label}")
 
 
 def cmd_feedback(conn, args):
@@ -327,11 +338,16 @@ def main():
     f.add_argument("verdict", choices=["up", "down"])
     f.add_argument("note", nargs="?", default="")
 
+    t = sub.add_parser("telemetry",
+                       help="rollup grant stats into telemetry_daily (also end of daily)")
+    t.add_argument("--day", default=None,
+                   help="YYYY-MM-DD to write (default: today in GRANT_SIFT_DAILY_TZ)")
+
     args = p.parse_args()
     for attr, default in (("limit", 200), ("out", "web/opportunities.json"),
                           ("min_score", 0), ("feed", None), ("since", 7),
                           ("send", False), ("host", "127.0.0.1"), ("port", 8080),
-                          ("rematch", False)):
+                          ("rematch", False), ("day", None)):
         if not hasattr(args, attr):
             setattr(args, attr, default)
 
@@ -339,7 +355,8 @@ def main():
     try:
         {"ingest": cmd_ingest, "assess": cmd_assess, "export": cmd_export,
          "digest": cmd_digest, "daily": cmd_daily, "feedback": cmd_feedback,
-         "status": cmd_status, "serve": cmd_serve}[args.cmd](conn, args)
+         "telemetry": cmd_telemetry, "status": cmd_status,
+         "serve": cmd_serve}[args.cmd](conn, args)
     finally:
         conn.close()
 

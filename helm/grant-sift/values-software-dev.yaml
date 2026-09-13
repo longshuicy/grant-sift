@@ -72,6 +72,35 @@ config:
   GRANT_SIFT_DAILY_TZ: America/Chicago
   GRANT_SIFT_DAILY_CATCHUP: "on"
 
+# Grafana OSS in this namespace (Infinity → grant-sift:8080/api/stats).
+# Create admin secret once (see GRAFANA.md). No Prometheus.
+grafana:
+  enabled: true
+  admin:
+    existingSecret: grant-sift-grafana
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    storageClassName: nfs-taiga
+    size: 2Gi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grant-sift-grafana.software-dev.ncsa.illinois.edu
+    path: /
+    pathType: Prefix
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+      traefik.ingress.kubernetes.io/router.middlewares: redirect-web-to-443@internal
+    tls:
+      - hosts:
+          - grant-sift-grafana.software-dev.ncsa.illinois.edu
+        secretName: grant-sift-grafana-tls
+
 # Users hit oauth2-proxy Ingress, not the app Service directly.
 ingress:
   enabled: false
