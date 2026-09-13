@@ -28,11 +28,13 @@ does hold, and it would be dishonest to call this nothing:
 
 import hashlib
 import ipaddress
+import json
 import os
 import re
 import secrets
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -101,6 +103,34 @@ CHAT_TIMEOUT = int(os.environ.get("GRANT_SIFT_CHAT_TIMEOUT", "120"))
 MAX_NOTE = 500
 MAX_CHAT_CHARS = 4000
 MAX_TURNS = 12
+
+# Focus: idea text -> matching calls. Two model calls on the viewer's own key,
+# so the limit is per hour like chat rather than per day.
+FOCUS_PER_HOUR = int(os.environ.get("GRANT_SIFT_FOCUS_PER_HOUR", "20"))
+MAX_IDEA_CHARS = 4000
+# The whole live catalogue is searched, but it does not fit in one prompt.
+# Measured against Lumen's gemma-4-31b-it: 1,040 live calls render to ~340k
+# chars, about 85k tokens, and the gateway caps input at 46,790. So the
+# catalogue is split into chunks that each fit and searched in parallel, and
+# the shortlists are merged.
+#
+# This is still "nothing is filtered before the model sees it" -- every call
+# is read, just not all in the same request. What it is not is retrieval: no
+# record is dropped on a keyword or a vector distance before the model votes.
+#
+# 100k chars is ~25k tokens, leaving room for the system prompt, the idea and
+# the answer inside a 46k window. Raise it for a gateway with more context;
+# the failure mode if it is too large is a 400 from the gateway, which is
+# reported verbatim so the number to change is obvious.
+FOCUS_CHUNK_CHARS = int(os.environ.get("GRANT_SIFT_FOCUS_CHUNK_CHARS", "100000"))
+FOCUS_MAX_CHUNKS = int(os.environ.get("GRANT_SIFT_FOCUS_MAX_CHUNKS", "8"))
+FOCUS_SHORTLIST = int(os.environ.get("GRANT_SIFT_FOCUS_SHORTLIST", "50"))
+# Per chunk, so the merged shortlist lands near FOCUS_SHORTLIST without any
+# one chunk being able to fill it alone.
+FOCUS_PER_CHUNK = int(os.environ.get("GRANT_SIFT_FOCUS_PER_CHUNK", "15"))
+# Second pass reads fuller text for the shortlist. 50 x 1,500 chars is ~19k
+# tokens in one call, against 50 separate calls at three seconds each.
+FOCUS_RERANK_CHARS = 1500
 
 
 app = FastAPI(title="Grant Sift", docs_url=None, redoc_url=None)
@@ -964,6 +994,282 @@ def chat(request: Request, payload: dict = Body(...)):
             f"{usage.get('reasoning_tokens')}). Try a larger max_tokens.",
         )
     return {"content": content, "usage": data.get("usage") or {}}
+
+
+# --------------------------------------------------------------------------
+# Focus: an idea in prose -> the calls that match it
+# --------------------------------------------------------------------------
+
+FOCUS_SHORTLIST_SYSTEM = """You match a researcher's project idea against a catalogue of
+open funding calls.
+
+You are given the WHOLE catalogue, one call per line, then the idea. Nothing has
+been filtered out before you: the shortlist is yours to choose.
+
+Each line is:  ID | title | funder | deadline | what the call funds
+
+Return ONLY a JSON array of at most {n} objects, best match first, no fences:
+[{{"id": "the ID exactly as given", "why": "one clause on what connects it to the idea"}}]
+
+Rules:
+- Copy the ID character for character. An ID you alter cannot be looked up.
+- Judge on what the work IS, not on shared vocabulary. A call about "data
+  management for clinical trials" is a poor match for an idea about managing
+  climate model output, however many words they share.
+- Include a call whose subject differs but whose technical requirement is the
+  same: that is the most valuable kind of match, because nobody finds it by
+  searching.
+- Return fewer than {n} rather than padding. An empty array is a valid answer.
+- Some lines carry a note about fit to our group instead of a description,
+  because no description was generated for that call yet. Treat those as
+  weaker evidence, not as a reason to skip the call."""
+
+FOCUS_RANK_SYSTEM = """You are scoring shortlisted funding calls against a researcher's
+project idea, now with more of each call's text.
+
+Return ONLY a JSON array, best first, no fences:
+[{"id": "exactly as given", "affinity": 0-100, "why": "one sentence, concrete"}]
+
+affinity is how well THIS CALL fits THIS IDEA. It is not a quality score and it
+is not our group's relevance score; a superb call that does not fit the idea
+scores low, and that is correct.
+
+  80-100  the idea could be proposed to this call largely as it stands
+  60-79   a real fit; the idea would need reframing
+  40-59   adjacent; a component of the idea fits
+  0-39    not a fit
+
+Say why in terms of the idea, not the call in general. Drop anything under 40
+rather than listing it."""
+
+
+_corpus_cache: dict = {}
+
+
+def _focus_corpus(conn):
+    """One line per live call, split into prompt-sized chunks.
+
+    Nothing is filtered before the model sees it, which is the property a BM25
+    or embedding prefilter would quietly give up, and the same principle as
+    "nothing fetched is thrown away".
+
+    Ordered by id and cached, because each chunk is the PREFIX of a focus
+    request. vLLM prefix caching is worth about 2.8x on this gateway and only
+    applies to a byte-identical prefix, so an unstable ordering would cost more
+    than the query itself. The chunk boundaries have to be stable for the same
+    reason, which is why they are cut on a byte budget over an id-ordered list
+    rather than on anything that varies per request.
+    """
+    sig = conn.execute(
+        """SELECT count(*) c, coalesce(max(a.assessed_at), '') m
+             FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
+            WHERE o.deadline IS NULL OR o.deadline >= date('now')"""
+    ).fetchone()
+    key = (sig["c"], sig["m"])
+    if _corpus_cache.get("key") == key:
+        return _corpus_cache["chunks"], _corpus_cache["n"], _corpus_cache["trimmed"]
+
+    rows = conn.execute(
+        """SELECT o.id, o.title, o.agency, o.deadline, a.summary, a.rationale
+             FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
+            WHERE o.deadline IS NULL OR o.deadline >= date('now')
+            ORDER BY o.id"""
+    ).fetchall()
+
+    chunks, cur, cur_len, n, trimmed = [], [], 0, 0, 0
+    for r in rows:
+        # summary describes the call; rationale justifies a score against our
+        # own fit and is a poor substitute, but it is what exists on rows not
+        # yet re-assessed. The prompt is told the difference.
+        desc = " ".join((r["summary"] or r["rationale"] or "").split())[:400]
+        line = (f"{r['id']} | {r['title']} | {r['agency'] or ''} | "
+                f"{r['deadline'] or 'rolling'} | {desc}")
+        if cur and cur_len + len(line) > FOCUS_CHUNK_CHARS:
+            chunks.append("\n".join(cur))
+            cur, cur_len = [], 0
+            if len(chunks) >= FOCUS_MAX_CHUNKS:
+                # A hard stop rather than an unbounded fan-out: every chunk is
+                # a paid call on the viewer's key. Reported, never silent.
+                trimmed = len(rows) - n
+                break
+        cur.append(line)
+        cur_len += len(line) + 1
+        n += 1
+    if cur and len(chunks) < FOCUS_MAX_CHUNKS:
+        chunks.append("\n".join(cur))
+
+    _corpus_cache.update(key=key, chunks=chunks, n=n, trimmed=trimmed)
+    return chunks, n, trimmed
+
+
+def _focus_post(base_url, api_key, model, system, user, max_tokens):
+    """One completion against the viewer's gateway. Same handling as /api/chat:
+    the key is forwarded and dropped, and no error echoes it back."""
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+    }
+    host = (urlparse(base_url).hostname or "").lower()
+    if host == "lumen.ncsa.illinois.edu" or host.endswith(".ncsa.illinois.edu"):
+        body["chat_template_kwargs"] = {"enable_thinking": False}
+    try:
+        r = requests.post(f"{base_url}/chat/completions",
+                          headers={"Authorization": f"Bearer {api_key}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=CHAT_TIMEOUT)
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"gateway unreachable: {type(exc).__name__}")
+    if r.status_code != 200:
+        detail = re.sub(r"(sk|gho|xoxb)[_-][A-Za-z0-9_\-]{8,}", "[redacted]", r.text[:300])
+        raise HTTPException(502, f"gateway returned {r.status_code}: {detail}")
+    data = r.json()
+    choice = (data.get("choices") or [{}])[0]
+    content = ((choice.get("message") or {}).get("content") or "").strip()
+    if not content:
+        usage = data.get("usage") or {}
+        raise HTTPException(502, "the model returned no content (finish_reason="
+                                 f"{choice.get('finish_reason')}, reasoning_tokens="
+                                 f"{usage.get('reasoning_tokens')}). Try a larger max_tokens.")
+    return content, (data.get("usage") or {})
+
+
+def _focus_json(text):
+    """Models fence their JSON sometimes. Same defensive parse as llm._json:
+    try it clean, then try the first bracketed run. A list or nothing."""
+    cleaned = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+    for candidate in (cleaned, match.group(0) if match else None):
+        if not candidate:
+            continue
+        try:
+            v = json.loads(candidate)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(v, list):
+            return v
+    return []
+
+
+@app.post("/api/focus")
+def focus(request: Request, payload: dict = Body(...)):
+    """Idea text in, matching calls out. Two model calls on the viewer's key.
+
+    Nothing about the idea is stored. It is not written to a table, not logged,
+    and not exported: it is unpublished research, the same class of material as
+    Projects/, and the only copy that outlives the request is the one in the
+    caller's own tab.
+    """
+    auth.require_user(request)
+    _rate_limit(f"focus:{_client(request)}", FOCUS_PER_HOUR)
+
+    idea = str(payload.get("idea") or "").strip()[:MAX_IDEA_CHARS]
+    api_key = str(payload.get("api_key") or "").strip()
+    model = str(payload.get("model") or "").strip()
+    base_url = _check_base_url(
+        str(payload.get("base_url") or "https://lumen.ncsa.illinois.edu/v1").strip())
+
+    if not idea:
+        raise HTTPException(400, "idea is required")
+    if not api_key:
+        raise HTTPException(400, "api_key is required; this server holds no key of its own")
+    if not model:
+        raise HTTPException(400, "model is required")
+
+    conn = _conn()
+    try:
+        chunks, n, trimmed = _focus_corpus(conn)
+        if not n:
+            raise HTTPException(503, "no assessed live calls to search; run: python run.py assess")
+
+        # Chunk FIRST and idea LAST: the chunk is the cacheable prefix, and
+        # putting the idea ahead of it would make every request a novel prefix.
+        sys_prompt = FOCUS_SHORTLIST_SYSTEM.format(n=FOCUS_PER_CHUNK)
+
+        def search(chunk):
+            return _focus_post(base_url, api_key, model, sys_prompt,
+                               f"CATALOGUE OF OPEN CALLS:\n{chunk}\n\nTHE IDEA:\n{idea}",
+                               max_tokens=2000)
+
+        # In parallel: the chunks are independent, and run one after another a
+        # search of the whole catalogue would take as long as the chunk count
+        # multiplied by the slowest call. Bounded by FOCUS_MAX_CHUNKS above.
+        usage = []
+        picks = []
+        with ThreadPoolExecutor(max_workers=min(len(chunks), 4)) as pool:
+            for raw, used in pool.map(search, chunks):
+                usage.append(used)
+                picks += [p for p in _focus_json(raw) if isinstance(p, dict) and p.get("id")]
+
+        ids = []
+        for p in picks:
+            pid = str(p["id"]).strip()
+            if pid and pid not in ids:
+                ids.append(pid)
+        ids = ids[:FOCUS_SHORTLIST]
+        if not ids:
+            return {"results": [], "searched": n, "trimmed": trimmed,
+                    "chunks": len(chunks), "usage": usage,
+                    "note": "no call matched that idea"}
+
+        # Second pass over fuller text. One call rather than one per record:
+        # 50 separate completions would be minutes of wall clock in a request
+        # path, where 50 synopses at 1,500 chars is ~19k tokens in a single
+        # one.
+        marks = ",".join("?" * len(ids))
+        rows = {r["id"]: r for r in conn.execute(
+            f"""SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling,
+                       o.synopsis, a.score, a.summary
+                  FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
+                 WHERE o.id IN ({marks})""", ids)}
+        detail = []
+        for i in ids:
+            r = rows.get(i)
+            if not r:
+                continue        # a hallucinated id: dropped, never fabricated
+            detail.append(
+                f"{r['id']} | {r['title']} | {r['agency'] or ''} | "
+                f"deadline {r['deadline'] or 'rolling'} | award {r['award_ceiling'] or 'not stated'}\n"
+                f"{' '.join((r['summary'] or '').split())}\n"
+                f"{' '.join((r['synopsis'] or '').split())[:FOCUS_RERANK_CHARS]}")
+        if not detail:
+            return {"results": [], "searched": n, "trimmed": trimmed,
+                    "chunks": len(chunks), "usage": usage,
+                    "note": "the model returned ids that are not in the catalogue"}
+
+        ranked_raw, used = _focus_post(
+            base_url, api_key, model, FOCUS_RANK_SYSTEM,
+            "SHORTLISTED CALLS:\n\n" + "\n\n".join(detail) + f"\n\nTHE IDEA:\n{idea}",
+            max_tokens=4000)
+
+        out = []
+        for item in _focus_json(ranked_raw):
+            if not isinstance(item, dict):
+                continue
+            rid = str(item.get("id") or "").strip()
+            r = rows.get(rid)
+            if not r:
+                continue
+            try:
+                aff = max(0, min(100, int(float(item.get("affinity")))))
+            except (TypeError, ValueError):
+                continue
+            out.append({
+                "id": rid,
+                # Deliberately not "score". The pipeline's score answers a
+                # different question on a different scale, and one averaged
+                # with the other is meaningless.
+                "affinity": aff,
+                "why": str(item.get("why") or "")[:400],
+            })
+        usage.append(used)
+        out.sort(key=lambda x: -x["affinity"])
+        return {"results": out, "searched": n, "trimmed": trimmed,
+                "chunks": len(chunks), "usage": usage}
+    finally:
+        conn.close()
 
 
 @app.get("/opportunities.json")
