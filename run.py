@@ -323,7 +323,10 @@ def main():
                         "so a newly added roster entry can match them")
     a.add_argument("--backfill-axes", action="store_true",
                    help="first clear assessments that predate the axis "
-                        "subscores, so they are re-scored with them")
+                        "subscores, so they are re-scored with subscores, "
+                        "extracted facts and a summary. Run this once when "
+                        "deploying: the dashboard shows the summary in place "
+                        "of the funder text it used to print.")
 
     e = sub.add_parser("export")
     e.add_argument("--out", default="web/opportunities.json")
