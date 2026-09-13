@@ -129,7 +129,11 @@
   /* The two paragraphs answer different questions and used to sit adjacent
      and unlabelled, which reads as one run-on thought. Only the rationale is
      tagged: the summary is the plain description and needs no introduction,
-     and tagging both would be twice the furniture for half the clarity. */
+     and tagging both would be twice the furniture for half the clarity.
+
+     "why", not "relevance" or "why this score": the badge directly above
+     already reads "relevance 75/100", so repeating the word labels the
+     paragraph with the thing next to it rather than with what it says. */
   .tag { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
          color: var(--ink-faint); margin-right: 8px; white-space: nowrap; }
 
@@ -829,7 +833,7 @@ function rowHTML(o) {
         : esc(o.title)}</h2>
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
       ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
-      <p class="why"><span class="tag">why this score</span>${esc(o.rationale)}</p>
+      <p class="why"><span class="tag">why</span>${esc(o.rationale)}</p>
       ${fit}
       <div class="acts">
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
