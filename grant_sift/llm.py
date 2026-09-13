@@ -228,6 +228,13 @@ Also describe and measure the call itself.
 someone who has not seen the call and is deciding whether to read it. It is NOT
 a justification of the score: do not mention us, the roster, or fit.
 
+Return null for "summary" when the synopsis is too thin to describe the call --
+an RSS teaser such as "Read more...", a bare title, or a couple of words. Do
+not reconstruct one from the title: an invented summary is read as fact.
+This applies to "summary" ALONE. Always return a numeric score, a category and
+a rationale, however thin the text; judge those from the title if that is all
+there is.
+
 "axes" are five INDEPENDENT 0-100 ratings. They measure different things and
 are expected to disagree; a call can be high on one and near zero on another.
 Do not smooth them toward each other or toward the score. Rate the call as
