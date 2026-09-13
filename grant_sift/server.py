@@ -50,7 +50,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 def _opportunities_json_path() -> Path | None:
     """Prefer the PVC next to the DB; fall back to web/ (local / entrypoint symlink).
 
-    CronJob and serve share the same /data volume. Export writes
+    The nightly pipeline and serve share the same /data volume. Export writes
     /data/opportunities.json; the dashboard must read that file, not a stale
     copy baked into the container layer.
     """
@@ -927,7 +927,7 @@ def chat(request: Request, payload: dict = Body(...)):
 
 @app.get("/opportunities.json")
 def opportunities_json():
-    """Serve the export from the shared data volume (same file the CronJob writes).
+    """Serve the export from the data volume (same file the nightly run writes).
 
     Registered before StaticFiles so a broken or container-local copy under web/
     cannot hide PVC updates. no-cache so a nightly refresh is visible on reload.

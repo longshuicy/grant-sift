@@ -1,6 +1,6 @@
 apiVersion: v2
 name: grant-sift
-description: Funding watch dashboard, pipeline CronJob, and optional oauth2-proxy front door
+description: Funding watch dashboard with a built-in nightly pipeline, and optional oauth2-proxy front door
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

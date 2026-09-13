@@ -22,7 +22,7 @@ imagePullSecrets: []
 # accessModes are immutable — flipping it in place is rejected by the API
 # server, so it stays until a planned migration onto a fresh RWO claim.
 # That label is not what protects the database in any case: what protects it is
-# having exactly one writer (cronjob disabled below, strategy: Recreate, one
+# having exactly one writer (one nightly process, strategy: Recreate, one
 # replica). New installs get ReadWriteOnce from the chart default.
 persistence:
   enabled: true
@@ -67,16 +67,10 @@ config:
   # https://answers.uillinois.edu/illinois/47888
   GRANT_SIFT_SMTP_HOST: outbound-relays.techservices.illinois.edu
   GRANT_SIFT_SMTP_PORT: "25"
-  # Nightly pipeline, in the serving process. Replaces the CronJob below.
+  # Nightly pipeline, in the serving process.
   GRANT_SIFT_DAILY_AT: "06:00"
   GRANT_SIFT_DAILY_TZ: America/Chicago
   GRANT_SIFT_DAILY_CATCHUP: "on"
-
-# Nightly run happens inside the web pod (GRANT_SIFT_DAILY_AT above). A second
-# pod writing the same SQLite file on nfs-taiga is what corrupted the database
-# on 2026-09-10; do not re-enable this while the DB lives on a shared volume.
-cronjob:
-  enabled: false
 
 # Users hit oauth2-proxy Ingress, not the app Service directly.
 ingress:

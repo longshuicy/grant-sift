@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Grant Sift CLI.
 
-    python run.py daily                 # the cron job: ingest, assess, export, digest
+    python run.py daily                 # one nightly pass: ingest, assess, export, digest
     python run.py ingest                # fetch and prefilter only
     python run.py assess                # classify and match anything unassessed
     python run.py export                # write web/opportunities.json
@@ -27,8 +27,8 @@ SMTP_HOST = os.environ.get("GRANT_SIFT_SMTP_HOST", "localhost")
 SMTP_PORT = int(os.environ.get("GRANT_SIFT_SMTP_PORT", "25"))
 SMTP_FROM = os.environ.get("GRANT_SIFT_FROM", "grant-sift@ncsa.illinois.edu")
 
-# In-process nightly run. Empty disables it, and `python run.py daily` from a
-# CronJob remains available for anyone whose database is not on shared storage.
+# In-process nightly run. Empty disables the schedule; `python run.py daily`
+# stays available to run by hand or from an external scheduler.
 DAILY_AT = os.environ.get("GRANT_SIFT_DAILY_AT", "").strip()
 DAILY_TZ = os.environ.get("GRANT_SIFT_DAILY_TZ", "UTC").strip() or "UTC"
 DAILY_CATCHUP = os.environ.get("GRANT_SIFT_DAILY_CATCHUP", "on").lower() not in (
@@ -187,8 +187,8 @@ def _run_daily_once(args):
 def _daily_loop(args, hour, minute):
     """Run the nightly pipeline in this process, once a day.
 
-    In-process rather than a separate CronJob because the SQLite file sits on
-    one PVC: WAL coordinates writers through a shared-memory index that is only
+    In-process rather than a separate pod because the SQLite file sits on one
+    PVC: WAL coordinates writers through a shared-memory index that is only
     coherent within a single host, so a second pod writing the same file
     corrupts it. One pod, one writer, and WAL works as intended.
     """
