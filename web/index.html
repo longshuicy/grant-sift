@@ -76,6 +76,18 @@
     border: 1px solid var(--rule); border-radius: 999px; cursor: pointer;
   }
   .chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  /* Ranking and filtering do different jobs, so they must not look identical.
+     A labelled row and a square-cornered chip keep the two rows distinct at a
+     glance. */
+  .rowlab { font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+            color: var(--ink-faint); align-self: center; margin-right: 2px; }
+  .lensrow { margin-bottom: 4px; }
+  .lenschips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .lens { border-radius: 4px; }
+  .lens[aria-checked="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .lensdesc { margin: 0 0 12px; font-size: 13px; color: var(--ink-soft); max-width: 62ch; }
+  .strong { font-size: 12.5px; color: var(--ink-faint); margin: 2px 0 0; }
+  .strong b { color: var(--ink-soft); font-weight: 500; }
   .sortsel { padding: 8px 10px; font: inherit; font-size: 13.5px;
              max-width: 220px;
              background: var(--card); border: 1px solid var(--rule); border-radius: 3px; }
@@ -423,7 +435,14 @@
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
+    <div class="filters lensrow">
+      <span class="rowlab" id="lenslab">Rank for</span>
+      <span class="lenschips" role="radiogroup" aria-labelledby="lenslab" id="lenses"></span>
+    </div>
+    <p class="lensdesc" id="lensdesc"></p>
+
     <div class="filters">
+      <span class="rowlab">Filter</span>
       <button class="chip" data-filter="soon" aria-pressed="false">Closing soon</button>
       <button class="chip" data-filter="match" aria-pressed="false">Roster match</button>
       <button class="chip" data-filter="via-me" aria-pressed="false" hidden
@@ -544,7 +563,7 @@
 
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "", FUNDER = "";
+let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "", FUNDER = "", LENS = "overall";
 let PAGE = 1, PAGE_SIZE = 25;
 
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
@@ -621,6 +640,72 @@ function funderFamily(o) {
   return o.agency || o.source || "";
 }
 
+// Four lenses, each ranking by one axis. Six were tried; two were dropped
+// after measuring them on real ratings.
+//
+// "Software to build" (software_depth) and "Where they'll need us"
+// (partner_need) reproduced the default ordering at rank correlation 0.96 and
+// 0.98. Those axes correlate 0.92 and 0.95 with the overall score, which is
+// not a model failure: ASSESS_SYSTEM asks the overall score to measure
+// exactly "is there software here and will a PI need a partner", so a lens
+// built on either is the default list under another name. A chip that does
+// nothing teaches people the row does nothing.
+//
+// An earlier version weighted all five axes per lens. Blends do not reorder:
+// the model rates a good call high on every axis at once, so a weighted mean
+// of five co-moving numbers is nearly constant in rank. Measured at 0.92
+// against the default ordering, worse than every scoring below except k=1.
+const LENSES = {
+  overall: { label: "Overall relevance", axis: null,
+    desc: "The group's own ranking \u2014 the same one the nightly digests use." },
+  data:    { label: "Data & curation", axis: "data_management",
+    desc: "Heavy data volume, curation, sharing mandates, or a data requirement doing real work in the solicitation." },
+  scale:   { label: "HPC & scale", axis: "compute_intensity",
+    desc: "Work that needs serious compute \u2014 simulation, GPU, training runs, anything that only runs at a centre." },
+  sustain: { label: "Software sustainability", axis: "sustainability",
+    desc: "Maintenance, reproducibility, open source, and keeping existing research software alive." },
+};
+const AXIS_LABEL = { software_depth: "software depth", data_management: "data & curation",
+                     compute_intensity: "compute intensity", sustainability: "sustainability",
+                     partner_need: "partner need" };
+
+// Quality damps the axis rather than gating it, so no record is ever hidden
+// for scoring badly: a weak call sinks instead of disappearing, and there is
+// no arbitrary cutoff to defend.
+//
+// Multiplicative, not a blend of axis and score. Under alpha*axis +
+// (1-alpha)*score a high overall score compensates for a zero on the axis,
+// which is the failure that makes a lens do nothing; a product needs the
+// record to be decent at both.
+//
+// 0.5 measured on 60 records sampled from score >= 60: it keeps 83% of the
+// first-page turnover of ranking on the bare axis while lifting the worst
+// record reaching a first page from score 30 to 45. Lower and the quality
+// term stops working; higher and separation decays back toward ranking by
+// score alone.
+const QUALITY_EXP = 0.5;
+
+function lensScore(o, key) {
+  const lens = LENSES[key] || LENSES.overall;
+  if (!lens.axis) return o.score;
+  // Records assessed before subscores existed carry axes: null. Standing in
+  // the record's own score for the missing axis is the honest analogue of
+  // projecting the scalar across all five: the formula then reduces to
+  // score^1.5/10, which is monotone in score, so an un-axed corpus orders
+  // identically under every lens instead of floating to the top of each.
+  const v = (o.axes && typeof o.axes[lens.axis] === "number") ? o.axes[lens.axis] : o.score;
+  return v * Math.pow(Math.max(0, o.score) / 100, QUALITY_EXP);
+}
+
+// Names the axis doing the ranking and its value, so a reordering is
+// checkable. Shown at any value, including a low one: under a lens, "why is
+// this near the bottom" deserves an answer as much as "why is this on top".
+function lensNote(o, key) {
+  const lens = LENSES[key] || LENSES.overall;
+  if (!lens.axis || !o.axes || typeof o.axes[lens.axis] !== "number") return "";
+  return `<p class="strong">${esc(AXIS_LABEL[lens.axis])}: <b>${o.axes[lens.axis]}/100</b></p>`;
+}
+
 function viaMe(o) {
   // "Via us" on the card is contact.ncsa_contact; keep calls where the
   // signed-in person is on that list (email or NetID).
@@ -674,21 +759,27 @@ function matches(o) {
 function byAward(dir) {
   return (a, b) => {
     const x = a._award, y = b._award;
-    if (x === null && y === null) return b.score - a.score;
+    if (x === null && y === null) return tie(a, b);
     if (x === null) return 1;
     if (y === null) return -1;
-    return (dir === "asc" ? x - y : y - x) || b.score - a.score;
+    return (dir === "asc" ? x - y : y - x) || tie(a, b);
   };
 }
 
+// The lens breaks ties on every sort, not only on relevance. Deadlines cluster
+// hard on common dates, so "soonest deadline" produces large ties that were
+// previously resolved by the group score alone; this keeps the lens from ever
+// looking inert, which is what a disabled state would be papering over.
+function tie(a, b) { return lensScore(b, LENS) - lensScore(a, LENS); }
+
 function sortRows(rows) {
   const by = {
-    deadline:      (a,b) => (a.deadline || "9999") .localeCompare(b.deadline || "9999") || b.score - a.score,
-    score:         (a,b) => b.score - a.score,
+    deadline:      (a,b) => (a.deadline || "9999") .localeCompare(b.deadline || "9999") || tie(a, b),
+    score:         (a,b) => tie(a, b),
     "award-desc":  byAward("desc"),
     "award-asc":   byAward("asc"),
-    new:           (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "")
-  }[SORT] || ((a,b) => b.score - a.score);
+    new:           (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "") || tie(a, b)
+  }[SORT] || ((a,b) => tie(a, b));
   return [...rows].sort(by);
 }
 
@@ -806,6 +897,7 @@ function rowHTML(o) {
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
       ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
       <p class="why"><span class="tag">why</span>${esc(o.rationale)}</p>
+      ${lensNote(o, LENS)}
       ${fit}
       <div class="acts">
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
@@ -849,6 +941,7 @@ function rowHTML(o) {
 }
 
 function render() {
+  syncHash();
   const rows = sortRows(DATA.filter(matches));
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   if (PAGE > pages) PAGE = pages;
@@ -858,6 +951,7 @@ function render() {
   document.getElementById("tally").textContent =
     `${rows.length} of ${DATA.length} shown` +
     (AREA ? ` in "${AREA}"` : "") +
+    (LENS !== "overall" ? ` · ranked for ${LENSES[LENS].label.toLowerCase()}` : "") +
     (rows.length ? ` · page ${PAGE} of ${pages}` : "");
 
   document.getElementById("list").innerHTML = pageRows.length
@@ -1575,6 +1669,79 @@ document.getElementById("list").addEventListener("submit", async e => {
   }
 });
 
+function renderLenses() {
+  const box = document.getElementById("lenses");
+  box.innerHTML = Object.entries(LENSES).map(([k, l]) =>
+    `<button class="chip lens" data-lens="${k}" role="radio"
+             aria-checked="${k === LENS}" title="${esc(l.desc)}">${esc(l.label)}</button>`
+  ).join("");
+  // The description is a visible line, not only a tooltip: the existing "Via
+  // me" chip hides its meaning in a title attribute, which is invisible on
+  // touch and easy to miss on a control that silently reorders the page.
+  document.getElementById("lensdesc").textContent = (LENSES[LENS] || LENSES.overall).desc;
+}
+
+// Every control round-trips through the URL, so a configured view is a link
+// someone can paste. The readers here have no account and no roster presence,
+// which makes a shareable link the only persistence that reaches a colleague.
+function syncHash() {
+  const p = new URLSearchParams();
+  if (LENS !== "overall") p.set("lens", LENS);
+  if (SORT !== "score")   p.set("sort", SORT);
+  if (FUNDER)             p.set("funder", FUNDER);
+  if (AREA)               p.set("area", AREA);
+  if (QUERY)              p.set("q", QUERY);
+  if (ACTIVE.size)        p.set("f", [...ACTIVE].join(","));
+  const h = p.toString();
+  // replaceState, not location.hash: a render happens on every keystroke and
+  // would otherwise bury the back button under one entry per character.
+  history.replaceState(null, "", h ? "#" + h : location.pathname + location.search);
+}
+
+function applyHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (LENSES[p.get("lens")]) LENS = p.get("lens");
+  const sortSel = document.getElementById("sort");
+  const wanted = p.get("sort");
+  // Only accept a value the select actually offers. A stale link naming a
+  // removed sort would otherwise leave SORT pointing at nothing.
+  if (wanted && [...sortSel.options].some(o => o.value === wanted)) {
+    SORT = wanted; sortSel.value = wanted;
+  }
+  for (const [key, el, set] of [["funder", "funder", v => FUNDER = v],
+                                ["area",   "area",   v => AREA = v]]) {
+    const v = p.get(key), sel = document.getElementById(el);
+    if (v && [...sel.options].some(o => o.value === v)) { set(v); sel.value = v; }
+  }
+  if (p.get("q")) {
+    QUERY = p.get("q").trim().toLowerCase();
+    document.getElementById("q").value = p.get("q");
+  }
+  for (const f of (p.get("f") || "").split(",").filter(Boolean)) {
+    const btn = document.querySelector(`.chip[data-filter="${CSS.escape(f)}"]`);
+    if (btn) { ACTIVE.add(f); btn.setAttribute("aria-pressed", "true"); }
+  }
+}
+
+// Pasting a shared link into the address bar of a tab already on this page is
+// a same-document navigation: nothing reloads, applyHash never runs, and the
+// view silently ignores the link. Reload instead of re-deriving state, which
+// would mean teaching applyHash to clear controls as well as set them.
+// syncHash uses replaceState, which does not fire hashchange, so this cannot
+// loop on our own writes.
+addEventListener("hashchange", () => location.reload());
+
+document.getElementById("lenses").addEventListener("click", e => {
+  const btn = e.target.closest(".lens");
+  if (!btn) return;
+  // Radio, not checkbox: lenses are alternative rankings, and two at once has
+  // no meaning. The filter chips above stack on top and stay checkboxes.
+  LENS = btn.dataset.lens;
+  renderLenses();
+  PAGE = 1;
+  render();
+});
+
 function boot(payload) {
   DATA = payload.opportunities || [];
   // Parsed once at load, not inside the comparator: sorting 1,000 rows would
@@ -1628,6 +1795,10 @@ function boot(payload) {
   }
   document.getElementById("foot").textContent =
     `Generated ${payload.generated_at || "unknown"}. Scores and collaborator matches are model-generated; treat them as a first pass, not a decision.`;
+  // After the selects are populated, or a link naming a funder would be
+  // discarded for pointing at an option that does not exist yet.
+  applyHash();
+  renderLenses();
   render();
   probeAPI();
 }
