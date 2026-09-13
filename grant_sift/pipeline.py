@@ -637,11 +637,24 @@ def _aliases(name, entry):
     return [a for a in out if a and a != name.lower()]
 
 
+def _loads(blob):
+    """Stored JSON is written by us, but a hand-edited database or a partial
+    write should degrade to "no answer" rather than take down the export."""
+    if not blob:
+        return None
+    try:
+        v = json.loads(blob)
+    except (TypeError, ValueError):
+        return None
+    return v if isinstance(v, dict) else None
+
+
 def export_json(conn, path="web/opportunities.json", min_score=40, roster=None):
     rows = conn.execute(
         """SELECT o.id, o.source, o.title, o.synopsis, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
-                  a.score, a.category, a.rationale,
+                  a.score, a.category, a.rationale, a.summary,
+                  a.axes_json, a.facts_json,
                   a.match_name, a.match_kind, a.match_domain, a.match_project,
                   a.match_status, a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
@@ -659,8 +672,13 @@ def export_json(conn, path="web/opportunities.json", min_score=40, roster=None):
         "count": len(rows),
         "stale_sources": [dict(r) for r in db.stale_sources(conn)],
         "opportunities": [
-            {k: r[k] for k in r.keys()}
+            {k: r[k] for k in r.keys() if k not in ("axes_json", "facts_json")}
             | {"synopsis": (r["synopsis"] or "")[:900]}
+            # Emitted as null when the model did not answer, rather than
+            # synthesised from the scalar score. A fabricated block would be
+            # indistinguishable from a real one, and the consumer is the only
+            # place that can decide honestly what to do without it.
+            | {"axes": _loads(r["axes_json"]), "facts": _loads(r["facts_json"])}
             | {"human": verdicts.get(r["id"])}
             | {"contact": contacts.get((r["match_name"] or "").strip().lower())}
             for r in rows
