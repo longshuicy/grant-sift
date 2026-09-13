@@ -71,6 +71,15 @@ def cmd_assess(conn, args):
         conn.commit()
         print(f"cleared {n} assessment(s) that matched no collaborator, "
               "so they can be matched against the current roster")
+    if getattr(args, "backfill_axes", False):
+        # Rows scored before axes existed carry a valid score and so are not
+        # "unassessed"; without this they would never gain an axis block, and
+        # the lens ranking would silently apply to only part of the corpus.
+        n = conn.execute(
+            "DELETE FROM assessments WHERE axes_json IS NULL").rowcount
+        conn.commit()
+        print(f"cleared {n} assessment(s) with no axis block, so they can be "
+              "re-scored with subscores (this costs a full re-assess)")
     print("Assessing:")
     n = pipeline.assess_new(conn, roster, limit=args.limit)
     print(f"{n} assessed")
@@ -323,6 +332,12 @@ def main():
     a.add_argument("--rematch", action="store_true",
                    help="first clear assessments that matched no collaborator, "
                         "so a newly added roster entry can match them")
+    a.add_argument("--backfill-axes", action="store_true",
+                   help="first clear assessments that predate the axis "
+                        "subscores, so they are re-scored with subscores, "
+                        "extracted facts and a summary. Run this once when "
+                        "deploying: the dashboard shows the summary in place "
+                        "of the funder text it used to print.")
 
     e = sub.add_parser("export")
     e.add_argument("--out", default="web/opportunities.json")
@@ -347,7 +362,8 @@ def main():
     for attr, default in (("limit", 200), ("out", "web/opportunities.json"),
                           ("min_score", 0), ("feed", None), ("since", 7),
                           ("send", False), ("host", "127.0.0.1"), ("port", 8080),
-                          ("rematch", False), ("day", None)):
+                          ("rematch", False), ("day", None),
+                          ("backfill_axes", False)):
         if not hasattr(args, attr):
             setattr(args, attr, default)
 
