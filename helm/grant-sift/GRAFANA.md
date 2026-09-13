@@ -90,6 +90,9 @@ UI (software-dev): **https://grant-sift-grafana.software-dev.ncsa.illinois.edu**
 
 - Prefer **Sign in with Keycloak** (same NCSA realm as the grant-sift dashboard).
 - Local `admin` / secret password remains as break-glass (`auth.disable_login_form: false`).
+- **Anonymous Viewer** is on for software-dev so the Ops & Signal board can be linked
+  and **embedded** in the grant-sift app without a Grafana login. Edits still need
+  Keycloak or admin.
 
 Port-forward if ingress is off:
 
@@ -123,6 +126,26 @@ kubectl -n grant-sift exec deploy/grant-sift -- \
 | Dashboard (app) client | Still `grant-sift` via oauth2-proxy |
 
 New users who sign in with Keycloak get org role **Editor** (`users.auto_assign_org_role`). Tighten with `role_attribute_path` later if you add Keycloak roles.
+
+### Public view + app embed
+
+software-dev enables:
+
+| Setting | Effect |
+|---|---|
+| `auth.anonymous` → Viewer | Anyone can **view** dashboards without login |
+| `security.allow_embedding` | Allow iframe from the grant-sift app |
+| `cookie_samesite: none` + `cookie_secure` | Cookies work across the two hostnames when signed in |
+
+The app reads `GRANT_SIFT_GRAFANA_EMBED_URL` (ConfigMap) via `GET /api/config` and, if set, shows a kiosk iframe under the header. Empty string hides it.
+
+Kiosk URL (UID only — avoids the em-dash slug):
+
+```
+https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&kiosk&refresh=5m
+```
+
+If the Grafana UI shows “failed to load its application files”, check `server.root_url` (trailing `/`) and Traefik TLS — that is **not** caused by empty `telemetry_daily` rows. Empty telemetry only means blank panels after Grafana loads.
 
 ---
 
@@ -227,5 +250,6 @@ Or omit the overlay block. Re-run `helm upgrade`.
 
 - Grafana admin password + Keycloak client secret live in Secret `grant-sift-grafana` — not in git.
 - Prefer Keycloak (same NCSA realm as the app). Local admin is break-glass only.
+- Anonymous **Viewer** is intentional on software-dev for public/embedded charts; turn it off if the host must not be world-readable.
 - Ingress TLS is on. `/api/stats` stays unauthenticated on the app ClusterIP (same idea as `/api/health`); Grafana scrapes in-cluster, not via the public oauth2 Ingress.
 - Do not publish a public Ingress that bypasses oauth2-proxy just for stats.

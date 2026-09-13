@@ -151,6 +151,13 @@ def health():
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
 
 
+@app.get("/api/config")
+def public_config():
+    """Non-secret UI knobs (e.g. Grafana embed URL). Safe to call unauthenticated."""
+    embed = (os.environ.get("GRANT_SIFT_GRAFANA_EMBED_URL") or "").strip()
+    return {"grafana_embed_url": embed or None}
+
+
 @app.get("/api/whoami")
 def whoami(request: Request):
     """Who the proxy says you are, plus whether the gate is actually on.

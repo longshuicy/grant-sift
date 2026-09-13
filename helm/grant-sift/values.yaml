@@ -112,6 +112,9 @@ config:
   GRANT_SIFT_SMTP_HOST: ""
   GRANT_SIFT_SMTP_PORT: "25"
   GRANT_SIFT_FROM: grant-sift@example.com
+  # Public Grafana embed under the header. Empty = hide. Example:
+  # https://grant-sift-grafana.example.com/d/grant-sift-ops-signal?orgId=1&kiosk&theme=light
+  GRANT_SIFT_GRAFANA_EMBED_URL: ""
 
 # Keycloak front door (issuer built as {{url}}/realms/{{realm}}).
 # oauth2-proxy reads issuer-url via env from the grant-sift-keycloak ConfigMap.

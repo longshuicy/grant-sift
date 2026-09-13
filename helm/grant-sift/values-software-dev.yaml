@@ -71,6 +71,9 @@ config:
   GRANT_SIFT_DAILY_AT: "06:00"
   GRANT_SIFT_DAILY_TZ: America/Chicago
   GRANT_SIFT_DAILY_CATCHUP: "on"
+  # Public Grafana Ops & Signal board (kiosk), embedded under the app header.
+  # Empty hides the iframe. Requires grafana auth.anonymous + allow_embedding.
+  GRANT_SIFT_GRAFANA_EMBED_URL: "https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&kiosk&refresh=5m"
 
 # Grafana OSS in this namespace (Infinity → grant-sift:8080/api/stats).
 # Create admin + OIDC client secret once (see GRAFANA.md). No Prometheus.
@@ -86,12 +89,21 @@ grafana:
     passwordKey: admin-password
   grafana.ini:
     server:
-      root_url: https://grant-sift-grafana.software-dev.ncsa.illinois.edu
+      root_url: https://grant-sift-grafana.software-dev.ncsa.illinois.edu/
+      domain: grant-sift-grafana.software-dev.ncsa.illinois.edu
     users:
       auto_assign_org_role: Editor
+    security:
+      allow_embedding: true
+      cookie_samesite: none
+      cookie_secure: true
     auth:
       disable_login_form: false   # keep admin break-glass
       oauth_auto_login: false
+    auth.anonymous:
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
     auth.generic_oauth:
       enabled: true
       name: Keycloak

@@ -54,6 +54,25 @@
   }
   .alarm b { font-weight: 600; color: var(--ink-soft); }
 
+  /* ---- Grafana ops/signal embed (anonymous Viewer kiosk) ---- */
+  .stats-embed {
+    margin: 18px 0 0;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .stats-embed-cap {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--rule);
+    font-size: 12.5px; color: var(--ink-soft);
+  }
+  .stats-embed-cap a { color: var(--moss); }
+  .stats-embed iframe {
+    display: block; width: 100%; height: min(52vh, 520px);
+    border: 0; background: var(--card);
+  }
+
   /* ---- controls ---- */
   .controls {
     display: flex; flex-direction: column; gap: 10px;
@@ -411,6 +430,15 @@
     </div>
     <div id="alarm"></div>
   </header>
+
+  <section class="stats-embed" id="stats-embed" hidden>
+    <div class="stats-embed-cap">
+      <span>Ops &amp; signal (last 90 days)</span>
+      <a id="stats-embed-open" href="#" target="_blank" rel="noopener">Open in Grafana</a>
+    </div>
+    <iframe id="stats-embed-frame" title="Grant Sift ops and signal charts"
+            loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+  </section>
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
@@ -1665,6 +1693,22 @@ fetch("opportunities.json")
        Run <code>python run.py daily</code> to generate opportunities.json.</div>`;
     document.getElementById("asof").textContent = "no data";
   });
+
+// Optional Grafana kiosk embed (anonymous Viewer). Hidden when unset.
+fetch("/api/config")
+  .then(r => r.ok ? r.json() : null)
+  .then(cfg => {
+    const url = cfg && cfg.grafana_embed_url;
+    if (!url) return;
+    const box = document.getElementById("stats-embed");
+    const frame = document.getElementById("stats-embed-frame");
+    const open = document.getElementById("stats-embed-open");
+    frame.src = url;
+    open.href = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "")
+      || url;
+    box.hidden = false;
+  })
+  .catch(() => {});
 </script>
 </body>
 </html>
