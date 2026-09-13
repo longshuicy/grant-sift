@@ -43,6 +43,7 @@ python run.py daily [--limit N]     # one nightly pass, assesses N records (defa
 python run.py ingest                # fetch, enrich, store
 python run.py assess [--limit N]    # score anything unassessed, live calls first
 python run.py assess --rematch      # clear no-match assessments first, after a roster addition
+python run.py assess --backfill-axes # re-score rows predating summary/axes/facts (a full pass)
 python run.py export                # write web/opportunities.json
 python run.py status                # what ran, what has gone stale
 python run.py serve [--host --port] # dashboard, feedback and chat
@@ -139,6 +140,44 @@ fetches and five minutes; steady state is only new postings.
 Expiry is checked twice, on the search response and again after enrichment,
 because the detail endpoint often supplies a deadline the search omitted that
 has already passed.
+
+## What a card says, and what it no longer says
+
+Two paragraphs, answering two different questions:
+
+| | written to answer | tagged on the card |
+| --- | --- | --- |
+| `summary` | what does this call fund, and who is eligible | no tag; it is the description |
+| `rationale` | why did *we* score it that way | **why** |
+
+They used to sit adjacent and unlabelled, which reads as one run-on thought,
+and before `summary` existed `rationale` was standing in for a description it
+was never written to be. "Not for us: student training grant, no software
+component" justifies a score perfectly and tells you nothing about what the
+programme funds.
+
+**The card no longer shows the funder's own text.** It used to, behind a
+disclosure labelled *Show summary*, which was not one: it was `synopsis` cut
+to the first 900 characters at export time. On a 1,261-record corpus that cut
+861 of them mid-sentence, left 97 under 200 characters, and rendered 37 RSS
+teasers whose entire captured text was "Read more...". Every record has a
+`url`, so clicking the title reads the real solicitation rather than a
+truncated copy of its opening.
+
+Dropping it from the export took `web/opportunities.json` from 2.56 MB to
+1.40 MB, a **46%** cut in what every visitor downloads, for one collapsed
+element. Nothing else in the browser read it and the dashboard never searched
+it. The chat proxy is unaffected: it builds its system message from the full
+synopsis in the database, not from the export, so its answers stay richer than
+anything the card ever showed.
+
+The model returns `null` for `summary` when the captured text is too thin to
+describe the call, and the card then shows nothing. That guard is there
+because it does not otherwise decline: given only "Read more...", it wrote a
+fluent, confident, entirely invented description from the title. Across 37
+records that reads as fact. The instruction is scoped to `summary` alone --
+worded generally, the model began returning a null **score** as well, which
+raises and would have left those records re-attempted every night forever.
 
 ## Feedback
 
@@ -361,7 +400,8 @@ to keep it). Lumen has no CORS, so the browser cannot call it directly.
 **What the model sees.** Every turn builds a system message from that
 opportunity’s stored row — title, funder, deadline, award, URL, pipeline score
 and rationale, closest roster match, and the captured synopsis (up to ~8k
-chars) — then appends the chat turns. It does **not** re-fetch the live
+chars, read from the database rather than the export, which no longer carries
+it) — then appends the chat turns. It does **not** re-fetch the live
 solicitation. Answers that need the full PDF should say so and point at the
 dashboard link.
 
@@ -412,6 +452,9 @@ erDiagram
         TEXT match_domain "groups the dashboard filter"
         TEXT match_project
         TEXT match_status "warm cold do-not-contact"
+        TEXT summary "what it funds, null when the text is too thin"
+        TEXT axes_json "five 0-100 subscores, null before the backfill"
+        TEXT facts_json "extracted fields, not judgements"
         TEXT model
         TEXT assessed_at
     }
@@ -463,6 +506,21 @@ erDiagram
 moves or a reviewer corrects it, which is what queues a re-score.
 `detail_cache` and `page_cache` exist only to avoid paying twice. `sources` is
 the health table behind the stale banner.
+
+`summary`, `axes_json` and `facts_json` all come back from the **same** assess
+call, for about 60 extra output tokens and no extra request. They are NULL on
+rows scored before they existed, which is what `assess --backfill-axes` keys
+on: those rows carry a valid score and so are not "unassessed", and without
+the flag they would never gain one. Budget a full pass for it.
+
+A malformed axis block is discarded whole rather than stored partially,
+because the dashboard's fallback for a missing block is to stand the record's
+own score in for the missing axis, which orders it exactly as today; a block
+with two real numbers and three zeros would instead sink that record with
+nothing to signal it. Facts degrade field by field, since an unparseable award
+figure says nothing about the domain beside it. Neither ever raises: a record
+whose score parsed cleanly must not return to the queue because one subscore
+came back as a string.
 
 Postgres would only be warranted by many concurrent writers, replication, or
 more than one host writing the file. SQLite locking is unsafe over shared

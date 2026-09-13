@@ -222,6 +222,48 @@ worth more than a name we once emailed. Reach for a contact when their area is a
 clearly better fit than anything in the first section, or when the first section
 has nothing.
 
+Also describe and measure the call itself.
+
+"summary" is 2-3 sentences on what it funds and who is eligible. Write it for
+someone who has not seen the call and is deciding whether to read it. It is NOT
+a justification of the score: do not mention us, the roster, or fit.
+
+Return null for "summary" when the synopsis is too thin to describe the call --
+an RSS teaser such as "Read more...", a bare title, or a couple of words. Do
+not reconstruct one from the title: an invented summary is read as fact.
+This applies to "summary" ALONE. Always return a numeric score, a category and
+a rationale, however thin the text; judge those from the title if that is all
+there is.
+
+"axes" are five INDEPENDENT 0-100 ratings. They measure different things and
+are expected to disagree; a call can be high on one and near zero on another.
+Do not smooth them toward each other or toward the score. Rate the call as
+written, not its fit for us.
+
+  software_depth     how much software actually has to be BUILT. 0 = no
+                     engineering, a science proposal with a data sentence.
+                     100 = the deliverable is a system, pipeline or platform.
+  data_management    volume, curation, sharing mandates, DMP weight. 0 = data
+                     is not discussed. 100 = data stewardship IS the call.
+  compute_intensity  HPC, GPU, simulation, large-scale training. 0 = runs on a
+                     laptop. 100 = only runs at a centre.
+  sustainability     maintenance, reproducibility, open source, keeping
+                     existing software alive. 0 = pure new work. 100 = the call
+                     is about upkeep and reuse.
+  partner_need       does this STRUCTURALLY require a partner outside the
+                     domain? 0 = a domain lab does all of it alone. 100 = the
+                     PI cannot staff this without a software or data partner.
+
+"facts" are extracted, not judged. Use null for anything the text does not
+state; do not infer.
+
+  call_domain       the call's OWN subject area, 2-4 words, lowercase
+                    ("genomics and bioinformatics", "arctic science")
+  award_ceiling_usd the largest dollar figure, as a plain integer, or null
+  subaward_ok       true if subawards or collaborative proposals are allowed
+  solicitation_type "single-pi" | "center" | "consortium" | "fellowship" |
+                    "training" | "conference" | "other"
+
 Return ONLY JSON, no fences:
 {
   "score": 0-100,
@@ -232,8 +274,69 @@ Return ONLY JSON, no fences:
   "match_domain": "the domain field of the roster line you matched, copied verbatim, or null",
   "match_project": "the past project, or null for a contact",
   "match_status": "warm | cold | prospect | departed | do-not-contact | null",
-  "match_rationale": "one sentence on why this person, or null"
+  "match_rationale": "one sentence on why this person, or null",
+  "summary": "2-3 sentences on what it funds and who is eligible",
+  "axes": {"software_depth": 0-100, "data_management": 0-100,
+           "compute_intensity": 0-100, "sustainability": 0-100,
+           "partner_need": 0-100},
+  "facts": {"call_domain": "...", "award_ceiling_usd": null,
+            "subaward_ok": null, "solicitation_type": "..."}
 }"""
+
+AXES = ("software_depth", "data_management", "compute_intensity",
+        "sustainability", "partner_need")
+FACTS = ("call_domain", "award_ceiling_usd", "subaward_ok", "solicitation_type")
+
+
+def _clean_axes(result):
+    """Keep the axis block only if it is complete and numeric.
+
+    A partial block is worse than none. The dashboard's fallback for a missing
+    block is to project the scalar score across all five axes, which is honest
+    and orders records exactly as today; a block with two real numbers and
+    three zeros silently ranks those records at the bottom of three lenses.
+
+    Never raises. Axes are an enhancement, and a record that would otherwise
+    score fine must not go back in the unassessed queue because one of them
+    came back as a string.
+    """
+    raw = result.get("axes")
+    if not isinstance(raw, dict):
+        result["axes"] = None
+        return result
+    out = {}
+    for k in AXES:
+        try:
+            out[k] = max(0, min(100, int(float(raw[k]))))
+        except (KeyError, TypeError, ValueError):
+            result["axes"] = None
+            return result
+    result["axes"] = out
+    return result
+
+
+def _clean_facts(result):
+    """Facts are independent of each other, so unlike axes they degrade field
+    by field: an unparseable award figure should not discard a good domain."""
+    raw = result.get("facts")
+    if not isinstance(raw, dict):
+        result["facts"] = None
+        return result
+    out = {}
+    for k in FACTS:
+        v = raw.get(k)
+        if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "n/a", "unknown"):
+            v = None
+        out[k] = v
+    if isinstance(out["award_ceiling_usd"], str):
+        digits = re.sub(r"[^\d]", "", out["award_ceiling_usd"])
+        out["award_ceiling_usd"] = int(digits) if digits else None
+    if not isinstance(out["award_ceiling_usd"], (int, float)):
+        out["award_ceiling_usd"] = None
+    if not isinstance(out["subaward_ok"], bool):
+        out["subaward_ok"] = None
+    result["facts"] = out if any(v is not None for v in out.values()) else None
+    return result
 
 
 def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
@@ -269,7 +372,9 @@ def assess(opportunity: dict, roster_block: str, corrections: str = "") -> dict:
         result["score"] = max(0, min(100, int(float(result["score"]))))
     except (TypeError, ValueError):
         raise ValueError(f"non-numeric score {result.get('score')!r}")
-    return result
+    # After the score, never before: a malformed axis block must not cost us a
+    # record whose score parsed cleanly.
+    return _clean_facts(_clean_axes(result))
 
 
 def format_corrections(rows) -> str:

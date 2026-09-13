@@ -104,6 +104,19 @@
   .cap { color: var(--ember); }
 
   .why { margin: 0 0 10px; }
+  /* What the call funds, written to be read. Sits above .why, which is the
+     model's justification of the score and answers a different question. */
+  .sumry { margin: 0 0 8px; color: var(--ink); }
+  /* The two paragraphs answer different questions and used to sit adjacent
+     and unlabelled, which reads as one run-on thought. Only the rationale is
+     tagged: the summary is the plain description and needs no introduction,
+     and tagging both would be twice the furniture for half the clarity.
+
+     "why", not "relevance" or "why this score": the badge directly above
+     already reads "relevance 75/100", so repeating the word labels the
+     paragraph with the thing next to it rather than with what it says. */
+  .tag { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+         color: var(--ink-faint); margin-right: 8px; white-space: nowrap; }
 
   .fit {
     padding: 9px 12px; background: var(--card);
@@ -177,15 +190,11 @@
   .bar .fill.min  { background: var(--ink-faint); opacity: .3; }
   .bar .num { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
-  details.more { margin-top: 10px; font-size: 13.5px; color: var(--ink-soft); }
-  details.more summary { cursor: pointer; color: var(--moss); }
-  details.more p { margin: 8px 0 0; }
   .acts { margin-top: 8px; }
   .act { font-size: 13px; color: var(--moss); text-decoration: none; }
   .act:hover { text-decoration: underline; }
   .amt { color: var(--ink); font-weight: 500; }
   .noamt { color: var(--ink-faint); }
-  .nosyn { margin: 8px 0 0; font-size: 13px; color: var(--ink-faint); }
   .areatag { display: inline-block; float: right; margin: 0 0 4px 8px; padding: 1px 7px;
              max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
              vertical-align: bottom;
@@ -795,7 +804,8 @@ function rowHTML(o) {
         ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)}</a>`
         : esc(o.title)}</h2>
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
-      <p class="why">${esc(o.rationale)}</p>
+      ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
+      <p class="why"><span class="tag">why</span>${esc(o.rationale)}</p>
       ${fit}
       <div class="acts">
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
@@ -834,9 +844,6 @@ function rowHTML(o) {
           <span class="hint" data-chathint="${esc(o.id)}"></span>
         </div>
       </div>
-      ${o.synopsis
-        ? `<details class="more"><summary>Show summary</summary><p>${esc(o.synopsis)}</p></details>`
-        : `<p class="nosyn">No summary was captured for this call. Open it from the title above.</p>`}
     </div>
   </article>`;
 }
