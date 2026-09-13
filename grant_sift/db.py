@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS assessments (
     match_project    TEXT,
     match_status     TEXT,
     match_rationale  TEXT,
+    summary          TEXT,            -- what it funds and who is eligible
+    axes_json        TEXT,            -- five 0-100 subscores, NULL before #8
+    facts_json       TEXT,            -- extracted fields, not judgements
     model            TEXT,
     input_hash       TEXT,
     assessed_at      TEXT,
@@ -163,7 +166,7 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
         conn.execute("ALTER TABLE opportunities ADD COLUMN screen TEXT")
         conn.commit()
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
-    for col in ("match_domain", "match_kind"):
+    for col in ("match_domain", "match_kind", "summary", "axes_json", "facts_json"):
         if col not in acols:
             conn.execute(f"ALTER TABLE assessments ADD COLUMN {col} TEXT")
             conn.commit()
@@ -384,15 +387,21 @@ def save_assessment(conn, opp_id: str, a: dict, model: str, input_hash: str):
     conn.execute(
         """INSERT OR REPLACE INTO assessments
            (opportunity_id, score, category, rationale, match_name, match_kind,
-            match_domain, match_project, match_status, match_rationale, model,
-            input_hash, assessed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            match_domain, match_project, match_status, match_rationale,
+            summary, axes_json, facts_json, model, input_hash, assessed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             opp_id, a.get("score") if a.get("score") is not None else 0,
             a.get("category") or "not_relevant", a.get("rationale"),
             a.get("match_name"), a.get("match_kind"), a.get("match_domain"),
             a.get("match_project"), a.get("match_status"),
-            a.get("match_rationale"), model, input_hash, now(),
+            a.get("match_rationale"), a.get("summary"),
+            # Stored as NULL rather than "{}" when the model omits them, so
+            # "this model did not answer" stays distinguishable from "it
+            # answered with nothing", which is what the backfill query keys on.
+            json.dumps(a["axes"]) if a.get("axes") else None,
+            json.dumps(a["facts"]) if a.get("facts") else None,
+            model, input_hash, now(),
         ),
     )
 
