@@ -35,10 +35,20 @@
   /* ---- status strip: the operationally characteristic thing ---- */
   .strip {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 34px;
-    padding-bottom: 20px; border-bottom: 2px solid var(--ink);
+    padding-bottom: 10px; border-bottom: 2px solid var(--ink);
   }
   .brand { font-family: var(--serif); font-size: 30px; letter-spacing: -0.01em; margin-right: auto; }
   .brand span { color: var(--ink-faint); font-size: 14px; font-family: var(--sans); margin-left: 12px; }
+  .brand-block { margin-right: auto; }
+  .brand-block .brand { margin-right: 0; display: block; }
+  .brand-block .grafana-link {
+    display: inline-block; margin-top: 4px;
+    font-size: 12.5px; color: var(--ink-faint); text-decoration: none;
+  }
+  .brand-block .grafana-link:hover { color: var(--moss); text-decoration: underline; }
+  .brand-block .grafana-link:focus-visible {
+    outline: 2px solid var(--moss); outline-offset: 2px;
+  }
   .stat b { font-family: var(--serif); font-size: 26px; font-weight: 600; display: block; line-height: 1.1; }
   .stat i { font-style: normal; font-size: 12.5px; color: var(--ink-soft); }
   .stat.warn b { color: var(--ember); }
@@ -53,25 +63,6 @@
     font-size: 12.5px; color: var(--ink-faint);
   }
   .alarm b { font-weight: 600; color: var(--ink-soft); }
-
-  /* ---- Grafana ops/signal embed (anonymous Viewer kiosk) ---- */
-  .stats-embed {
-    margin: 18px 0 0;
-    border: 1px solid var(--rule);
-    border-radius: 3px;
-    overflow: hidden;
-    background: var(--card);
-  }
-  .stats-embed-cap {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--rule);
-    font-size: 12.5px; color: var(--ink-soft);
-  }
-  .stats-embed-cap a { color: var(--moss); }
-  .stats-embed iframe {
-    display: block; width: 100%; height: min(52vh, 520px);
-    border: 0; background: var(--card);
-  }
 
   /* ---- controls ---- */
   .controls {
@@ -391,7 +382,10 @@
 <div class="shell">
 
   <header class="strip">
-    <div class="brand">Grant Sift<span id="asof">loading</span></div>
+    <div class="brand-block">
+      <div class="brand">Grant Sift<span id="asof">loading</span></div>
+      <a class="grafana-link" id="grafana-link" hidden href="#" target="_blank" rel="noopener">Ops &amp; signal</a>
+    </div>
     <div class="stat"><b id="n-open">..</b><i>open calls</i></div>
     <div class="stat warn"><b id="n-soon">..</b><i>close within 30 days</i></div>
     <div class="stat"><b id="n-match">..</b><i>match a past collaborator</i></div>
@@ -439,15 +433,6 @@
     </div>
     <div id="alarm"></div>
   </header>
-
-  <section class="stats-embed" id="stats-embed" hidden>
-    <div class="stats-embed-cap">
-      <span>Ops &amp; signal (last 90 days)</span>
-      <a id="stats-embed-open" href="#" target="_blank" rel="noopener">Open in Grafana</a>
-    </div>
-    <iframe id="stats-embed-frame" title="Grant Sift ops and signal charts"
-            loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-  </section>
 
   <div class="controls">
     <input id="q" class="search" type="search" placeholder="Search titles, funders, people">
@@ -1701,19 +1686,16 @@ fetch("opportunities.json")
     document.getElementById("asof").textContent = "no data";
   });
 
-// Optional Grafana kiosk embed (anonymous Viewer). Hidden when unset.
+// Optional Grafana link in the header strip (same row as open/soon/match).
 fetch("/api/config")
   .then(r => r.ok ? r.json() : null)
   .then(cfg => {
-    const url = cfg && cfg.grafana_embed_url;
+    const url = cfg && (cfg.grafana_url || cfg.grafana_embed_url);
     if (!url) return;
-    const box = document.getElementById("stats-embed");
-    const frame = document.getElementById("stats-embed-frame");
-    const open = document.getElementById("stats-embed-open");
-    frame.src = url;
-    open.href = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "")
-      || url;
-    box.hidden = false;
+    const link = document.getElementById("grafana-link");
+    // Prefer a normal dashboard URL (drop kiosk if present).
+    link.href = url.replace(/([?&])kiosk(=[^&]*)?/, "$1").replace(/\?&/, "?").replace(/[?&]$/, "") || url;
+    link.hidden = false;
   })
   .catch(() => {});
 </script>
