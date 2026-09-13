@@ -156,7 +156,7 @@ def pearson(xs, ys):
     return sum(a * b for a, b in zip(dx, dy)) / math.sqrt(vx * vy)
 
 
-def sample(conn, limit):
+def sample(conn, limit, min_prior=0):
     """Spread the sample across the score range.
 
     Sampling the top of the list would measure correlation on a restricted
@@ -170,9 +170,9 @@ def sample(conn, limit):
                a.score AS prior
           FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
          WHERE o.synopsis IS NOT NULL AND length(o.synopsis) > 200
-           AND a.score IS NOT NULL
+           AND a.score IS NOT NULL AND a.score >= ?
       ORDER BY o.id
-    """).fetchall()
+    """, (min_prior,)).fetchall()
     bands = defaultdict(list)
     for r in rows:
         bands[min(9, int(r["prior"]) // 10)].append(r)
@@ -217,6 +217,11 @@ def main():
     ap.add_argument("--diverge", type=float, default=0.90,
                     help="rank correlation against the default lens below "
                          "which a lens counts as producing a different list")
+    ap.add_argument("--min-prior", type=int, default=0,
+                    help="only sample records whose existing score is at least "
+                         "this. A lens earns its keep at the top of the list, "
+                         "and a corpus-wide sample is mostly records nobody "
+                         "scrolls to, which drowns the signal.")
     ap.add_argument("--floor", type=int, default=40,
                     help="only records at or above this score are ranked: a "
                          "lens never reorders what the dashboard does not show")
@@ -237,7 +242,7 @@ def main():
         return
 
     conn = db.connect(args.db)
-    records = sample(conn, args.limit)
+    records = sample(conn, args.limit, args.min_prior)
     if not records:
         sys.exit("no assessed records with a usable synopsis; run `assess` first")
 
