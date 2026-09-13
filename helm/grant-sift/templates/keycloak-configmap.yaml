@@ -1,4 +1,8 @@
-{{- if and (index .Values "oauth2-proxy" "enabled") .Values.keycloak.url .Values.keycloak.realm }}
+{{- /* Shared Keycloak issuer for oauth2-proxy and/or Grafana Generic OAuth. */ -}}
+{{- $oauth2 := index .Values "oauth2-proxy" "enabled" | default false -}}
+{{- $grafana := and (.Values.grafana).enabled ((.Values.grafana).keycloakAuth).enabled -}}
+{{- if and (or $oauth2 $grafana) .Values.keycloak.url .Values.keycloak.realm }}
+{{- $base := printf "%s/realms/%s" (.Values.keycloak.url | trimSuffix "/") .Values.keycloak.realm -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,6 +12,11 @@ metadata:
 data:
   realm: {{ .Values.keycloak.realm | quote }}
   url: {{ .Values.keycloak.url | trimSuffix "/" | quote }}
-  # Consumed by oauth2-proxy as OAUTH2_PROXY_OIDC_ISSUER_URL
-  issuer-url: {{ printf "%s/realms/%s" (.Values.keycloak.url | trimSuffix "/") .Values.keycloak.realm | quote }}
+  # oauth2-proxy: OAUTH2_PROXY_OIDC_ISSUER_URL
+  issuer-url: {{ $base | quote }}
+  # Grafana Generic OAuth (GF_AUTH_GENERIC_OAUTH_*)
+  auth-url: {{ printf "%s/protocol/openid-connect/auth" $base | quote }}
+  token-url: {{ printf "%s/protocol/openid-connect/token" $base | quote }}
+  api-url: {{ printf "%s/protocol/openid-connect/userinfo" $base | quote }}
+  logout-url: {{ printf "%s/protocol/openid-connect/logout" $base | quote }}
 {{- end }}

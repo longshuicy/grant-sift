@@ -196,15 +196,23 @@ oauth2-proxy:
 # ---------------------------------------------------------------------------
 # Grafana OSS (optional). Same namespace; no Prometheus.
 # Charts telemetry_daily via Infinity → http://grant-sift:8080/api/stats
+# Optional Keycloak login: same realm as oauth2-proxy (Generic OAuth).
 # Docs: GRAFANA.md
 # ---------------------------------------------------------------------------
 grafana:
   enabled: false
   fullnameOverride: grant-sift-grafana
+  # Parent-chart only (not a grafana subchart key). When true, Keycloak
+  # ConfigMap is rendered even if oauth2-proxy is off, and software-dev
+  # wires Generic OAuth env from it.
+  keycloakAuth:
+    enabled: false
+    clientId: grant-sift-grafana
   # Override in values-secrets / existingSecret — never commit a real password.
   adminUser: admin
   adminPassword: ""
   # Prefer an existing Secret (keys: admin-user, admin-password).
+  # For Keycloak OAuth also store client-secret in the same Secret (see GRAFANA.md).
   admin:
     existingSecret: ""
     userKey: admin-user

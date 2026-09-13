@@ -104,8 +104,10 @@ kubectl -n grant-sift create configmap grant-sift-roster \
 GRAFANA_PW="$(openssl rand -base64 24)"
 kubectl -n grant-sift create secret generic grant-sift-grafana \
   --from-literal=admin-user=admin \
-  --from-literal=admin-password="$GRAFANA_PW"
-echo "Grafana admin password: $GRAFANA_PW"
+  --from-literal=admin-password="$GRAFANA_PW" \
+  --from-literal=client-secret='PASTE_KEYCLOAK_GRAFANA_CLIENT_SECRET'
+echo "Grafana break-glass admin password: $GRAFANA_PW"
+# Keycloak client grant-sift-grafana: see GRAFANA.md (same realm as the app)
 ```
 
 Update roster later:
@@ -174,9 +176,10 @@ Chat still uses the browser **Personalize** key (not the pipeline Secret).
 
 | Setting | Where |
 |---|---|
-| Issuer `{{keycloak.url}}/realms/{{keycloak.realm}}` | ConfigMap `grant-sift-keycloak` → oauth2-proxy env |
+| Issuer `{{keycloak.url}}/realms/{{keycloak.realm}}` | ConfigMap `grant-sift-keycloak` → oauth2-proxy + Grafana OAuth |
 | `keycloak.realm` | `values-software-dev.yaml` (default `NCSA`) |
-| Client id / secret / cookie | Secret `grant-sift-oauth2` |
+| Client id / secret / cookie (app) | Secret `grant-sift-oauth2` |
+| Grafana Keycloak client | Client `grant-sift-grafana`; secret key `client-secret` in `grant-sift-grafana` |
 | `GRANT_SIFT_AUTH=proxy` | ConfigMap |
 | `GRANT_SIFT_TRUSTED_PROXIES` | `10.42.0.0/16` (k3s pod CIDR) |
 | Optional group gate | `GRANT_SIFT_AUTH_REQUIRED_GROUP` |
