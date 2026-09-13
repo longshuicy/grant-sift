@@ -640,66 +640,70 @@ function funderFamily(o) {
   return o.agency || o.source || "";
 }
 
-// Each lens is a BLEND, not a single axis. A single axis cranked to 5 is
-// indistinguishable from another entry in the sort dropdown; the blends are
-// where the judgement lives, and they are the part worth arguing about:
+// Four lenses, each ranking by one axis. Six were tried; two were dropped
+// after measuring them on real ratings.
 //
-//   "Where they'll need us" keeps software and data at 3 rather than 0. A call
-//   that needs an outside partner but carries no technical work is someone
-//   else's collaboration, and weighting partner_need alone surfaces exactly
-//   those.
-//   "Software sustainability" zeroes compute, or large simulation awards crowd
-//   out a list about keeping existing tools alive.
-//   "Software to build" drops partner_need to 1: if you want to write code you
-//   do not care whether the PI has realised they need you.
+// "Software to build" (software_depth) and "Where they'll need us"
+// (partner_need) reproduced the default ordering at rank correlation 0.96 and
+// 0.98. Those axes correlate 0.92 and 0.95 with the overall score, which is
+// not a model failure: ASSESS_SYSTEM asks the overall score to measure
+// exactly "is there software here and will a PI need a partner", so a lens
+// built on either is the default list under another name. A chip that does
+// nothing teaches people the row does nothing.
+//
+// An earlier version weighted all five axes per lens. Blends do not reorder:
+// the model rates a good call high on every axis at once, so a weighted mean
+// of five co-moving numbers is nearly constant in rank. Measured at 0.92
+// against the default ordering, worse than every scoring below except k=1.
 const LENSES = {
-  overall: { label: "Overall relevance", w: {software_depth:3, data_management:3, compute_intensity:2, sustainability:2, partner_need:3},
+  overall: { label: "Overall relevance", axis: null,
     desc: "The group's own ranking \u2014 the same one the nightly digests use." },
-  build:   { label: "Software to build", w: {software_depth:5, data_management:2, compute_intensity:2, sustainability:2, partner_need:1},
-    desc: "Calls where real engineering is in scope: a system, a pipeline, a platform. Not a data-management plan bolted onto a science proposal." },
-  data:    { label: "Data & curation", w: {software_depth:2, data_management:5, compute_intensity:2, sustainability:2, partner_need:2},
+  data:    { label: "Data & curation", axis: "data_management",
     desc: "Heavy data volume, curation, sharing mandates, or a data requirement doing real work in the solicitation." },
-  scale:   { label: "HPC & scale", w: {software_depth:2, data_management:2, compute_intensity:5, sustainability:1, partner_need:2},
+  scale:   { label: "HPC & scale", axis: "compute_intensity",
     desc: "Work that needs serious compute \u2014 simulation, GPU, training runs, anything that only runs at a centre." },
-  sustain: { label: "Software sustainability", w: {software_depth:3, data_management:1, compute_intensity:0, sustainability:5, partner_need:1},
+  sustain: { label: "Software sustainability", axis: "sustainability",
     desc: "Maintenance, reproducibility, open source, and keeping existing research software alive." },
-  needus:  { label: "Where they'll need us", w: {software_depth:3, data_management:3, compute_intensity:1, sustainability:0, partner_need:5},
-    desc: "Domain calls carrying a software or data requirement the PI cannot staff alone. The introductions worth making." },
 };
-const AXIS_LABEL = { software_depth: "software", data_management: "data",
-                     compute_intensity: "compute", sustainability: "sustainability",
+const AXIS_LABEL = { software_depth: "software depth", data_management: "data & curation",
+                     compute_intensity: "compute intensity", sustainability: "sustainability",
                      partner_need: "partner need" };
 
-// Records assessed before subscores existed carry axes: null. Projecting the
-// scalar across every axis makes their lens score equal their group score
-// under every lens, so they keep exactly the position they have today instead
-// of sinking to the bottom of a list they were never rated for.
+// Quality damps the axis rather than gating it, so no record is ever hidden
+// for scoring badly: a weak call sinks instead of disappearing, and there is
+// no arbitrary cutoff to defend.
+//
+// Multiplicative, not a blend of axis and score. Under alpha*axis +
+// (1-alpha)*score a high overall score compensates for a zero on the axis,
+// which is the failure that makes a lens do nothing; a product needs the
+// record to be decent at both.
+//
+// 0.5 measured on 60 records sampled from score >= 60: it keeps 83% of the
+// first-page turnover of ranking on the bare axis while lifting the worst
+// record reaching a first page from score 30 to 45. Lower and the quality
+// term stops working; higher and separation decays back toward ranking by
+// score alone.
+const QUALITY_EXP = 0.5;
+
 function lensScore(o, key) {
   const lens = LENSES[key] || LENSES.overall;
-  if (!o.axes) return o.score;
-  let num = 0, den = 0;
-  for (const axis in lens.w) {
-    const w = lens.w[axis], v = o.axes[axis];
-    if (typeof v !== "number") return o.score;
-    num += w * v; den += w;
-  }
-  return den ? num / den : o.score;
+  if (!lens.axis) return o.score;
+  // Records assessed before subscores existed carry axes: null. Standing in
+  // the record's own score for the missing axis is the honest analogue of
+  // projecting the scalar across all five: the formula then reduces to
+  // score^1.5/10, which is monotone in score, so an un-axed corpus orders
+  // identically under every lens instead of floating to the top of each.
+  const v = (o.axes && typeof o.axes[lens.axis] === "number") ? o.axes[lens.axis] : o.score;
+  return v * Math.pow(Math.max(0, o.score) / 100, QUALITY_EXP);
 }
 
-// The two axes carrying this lens for this record, so a reordering is
-// checkable rather than mysterious. Only worth showing where the lens had
-// something to work with.
-function strongOn(o, key) {
-  if (!o.axes || key === "overall") return "";
-  const lens = LENSES[key];
-  const top = Object.keys(lens.w)
-    .filter(a => lens.w[a] > 0 && typeof o.axes[a] === "number")
-    .sort((a, b) => (lens.w[b] * o.axes[b]) - (lens.w[a] * o.axes[a]))
-    .slice(0, 2)
-    .filter(a => o.axes[a] >= 50);
-  return top.length
-    ? `<p class="strong">strong on: <b>${top.map(a => esc(AXIS_LABEL[a])).join(", ")}</b></p>`
-    : "";
+// Names the axis doing the ranking and its value, so a reordering is
+// checkable. Shown at any value, including a low one: under a lens, "why is
+// this near the bottom" deserves an answer as much as "why is this on top".
+function lensNote(o, key) {
+  const lens = LENSES[key] || LENSES.overall;
+  if (!lens.axis || !o.axes || typeof o.axes[lens.axis] !== "number") return "";
+  return `<p class="strong">${esc(AXIS_LABEL[lens.axis])}: <b>${o.axes[lens.axis]}/100</b></p>`;
 }
 
 function viaMe(o) {
@@ -893,7 +897,7 @@ function rowHTML(o) {
       <div class="meta">${bits.join(" &nbsp;·&nbsp; ")}${cap ? " &nbsp;·&nbsp; " + cap : ""}</div>
       ${o.summary ? `<p class="sumry">${esc(o.summary)}</p>` : ""}
       <p class="why"><span class="tag">why</span>${esc(o.rationale)}</p>
-      ${strongOn(o, LENS)}
+      ${lensNote(o, LENS)}
       ${fit}
       <div class="acts">
         <button class="vote" data-vote="up"   data-id="${esc(o.id)}" aria-pressed="false" title="Good find: score it higher next time">&#9651; useful</button>
