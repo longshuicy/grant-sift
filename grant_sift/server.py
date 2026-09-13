@@ -1097,18 +1097,18 @@ def _focus_corpus(conn):
     rather than on anything that varies per request.
     """
     sig = conn.execute(
-        """SELECT count(*) c, coalesce(max(a.assessed_at), '') m
+        f"""SELECT count(*) c, coalesce(max(a.assessed_at), '') m
              FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-            WHERE o.deadline IS NULL OR o.deadline >= date('now')"""
+            WHERE {db.LIVE}"""
     ).fetchone()
     key = (sig["c"], sig["m"])
     if _corpus_cache.get("key") == key:
         return _corpus_cache["chunks"], _corpus_cache["n"], _corpus_cache["trimmed"]
 
     rows = conn.execute(
-        """SELECT o.id, o.title, o.agency, o.deadline, a.summary, a.rationale
+        f"""SELECT o.id, o.title, o.agency, o.deadline, a.summary, a.rationale
              FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-            WHERE o.deadline IS NULL OR o.deadline >= date('now')
+            WHERE {db.LIVE}
             ORDER BY o.id"""
     ).fetchall()
 
@@ -1255,11 +1255,15 @@ def focus(request: Request, payload: dict = Body(...)):
         # path, where 50 synopses at 1,500 chars is ~19k tokens in a single
         # one.
         marks = ",".join("?" * len(ids))
+        # {db.LIVE} again, even though the shortlist was drawn from a corpus
+        # that already excluded closed calls: the corpus is cached, and a call
+        # that closes between the cache being filled and this query running
+        # would otherwise reach the ranking prompt.
         rows = {r["id"]: r for r in conn.execute(
             f"""SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling,
                        o.synopsis, a.score, a.summary
                   FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-                 WHERE o.id IN ({marks})""", ids)}
+                 WHERE o.id IN ({marks}) AND {db.LIVE}""", ids)}
         detail = []
         for i in ids:
             r = rows.get(i)
@@ -1343,18 +1347,23 @@ def rescore(request: Request, payload: dict = Body(...)):
 
     conn = _conn()
     try:
+        # The ids come from the caller, i.e. from a focus shortlist that may
+        # have been on screen for a while. Filtering here rather than trusting
+        # that provenance is what keeps a call that has closed since out of
+        # the prompt; an id dropped here falls out of `ordered` below exactly
+        # as an unknown id already does.
         rows = {r["id"]: r for r in conn.execute(
-            """SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling, o.synopsis,
+            f"""SELECT o.id, o.title, o.agency, o.deadline, o.award_ceiling, o.synopsis,
                       a.summary
                  FROM opportunities o LEFT JOIN assessments a ON a.opportunity_id = o.id
-                WHERE o.id IN (%s)""" % ",".join("?" * len(ids)), ids)}
+                WHERE o.id IN ({",".join("?" * len(ids))}) AND {db.LIVE}""", ids)}
     finally:
         conn.close()
     # Keep the caller's order: it is what their screen shows, and a shortlist
     # reordered underneath them by an id lookup would be disorienting.
     ordered = [rows[i] for i in ids if i in rows]
     if not ordered:
-        raise HTTPException(404, "none of those calls exist")
+        raise HTTPException(404, "none of those calls are still open")
 
     detail = "\n\n".join(
         f"{r['id']} | {r['title']} | {r['agency'] or ''} | "

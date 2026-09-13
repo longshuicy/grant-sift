@@ -650,15 +650,20 @@ def _loads(blob):
 
 
 def export_json(conn, path="web/opportunities.json", min_score=0, roster=None):
+    # Closed calls are held in the database but not published. The dashboard
+    # is a list of things to apply for, and a record whose deadline has passed
+    # is not one of them -- it cost a slot in every filter, sort and count
+    # while being unactionable. db.LIVE keeps rolling calls, which have no
+    # deadline to pass.
     rows = conn.execute(
-        """SELECT o.id, o.source, o.title, o.agency, o.url, o.deadline,
+        f"""SELECT o.id, o.source, o.title, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
                   a.score, a.category, a.rationale, a.summary,
                   a.axes_json, a.facts_json,
                   a.match_name, a.match_kind, a.match_domain, a.match_project,
                   a.match_status, a.match_rationale
            FROM opportunities o JOIN assessments a ON a.opportunity_id = o.id
-           WHERE a.score >= ?
+           WHERE a.score >= ? AND {db.LIVE}
            ORDER BY (o.deadline IS NULL), o.deadline ASC, a.score DESC""",
         (min_score,),
     ).fetchall()

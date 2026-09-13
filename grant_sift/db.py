@@ -141,6 +141,24 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_metric_day ON telemetry_daily(metric, d
 """
 
 
+# A closed call stays in the database -- the record of what was once open is
+# the point, and prune_expired is still opt-in -- but it is no longer offered
+# to anything downstream. Expired rows are excluded from the JSON export and
+# from every prompt built for the model: a call nobody can apply to cannot be
+# the right answer to "what should I write for", and paying to score or to
+# rank one spends the budget and the context window on a dead record.
+#
+# Rolling calls (deadline IS NULL) are live by definition and always kept, the
+# same carve-out prune_expired makes. Applied in SQL rather than filtered in
+# Python so the LIMIT in unassessed() counts only rows that will be scored.
+#
+# Written against the alias `o` for opportunities, which every query using it
+# already uses. date('now') is UTC, matching adapters.is_expired; no grace day
+# here, because that grace exists to keep a just-closed record out of the
+# database, and these rows are already stored.
+LIVE = "(o.deadline IS NULL OR o.deadline >= date('now'))"
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -365,19 +383,24 @@ def page_changed(conn, url: str, text: str) -> bool:
 
 
 def unassessed(conn, limit: int = 200):
-    """Records with no assessment yet, live calls first.
+    """Records with no assessment yet, newest first. Closed calls excluded.
 
-    Closed calls are kept and still get scored eventually, but they queue
-    behind anything still open: under a --limit the budget should go to calls
-    that can actually be pursued. Ordering rather than excluding means nothing
-    is permanently skipped.
+    This used to merely sort closed calls last so that nothing was permanently
+    skipped. That was the wrong trade: every one of these rows is a paid model
+    call producing a score and a roster match for a deadline that has already
+    passed, and once assessed it is never revisited, so the spend buys a row
+    nobody can act on. The ordering only delayed the bill.
+
+    Nothing is lost by skipping them. The row stays in opportunities either
+    way, and a call that closed before it was ever scored has no verdict worth
+    recording. A row whose deadline passes AFTER it was assessed keeps its
+    assessment; this only declines to start new ones.
     """
     return conn.execute(
-        """SELECT o.* FROM opportunities o
+        f"""SELECT o.* FROM opportunities o
            LEFT JOIN assessments a ON a.opportunity_id = o.id
-           WHERE a.opportunity_id IS NULL
-           ORDER BY (o.deadline IS NOT NULL AND o.deadline < date('now')) ASC,
-                    o.first_seen DESC
+           WHERE a.opportunity_id IS NULL AND {LIVE}
+           ORDER BY o.first_seen DESC
            LIMIT ?""",
         (limit,),
     ).fetchall()

@@ -98,7 +98,8 @@ Two properties worth preserving:
 
 **The model runs offline, never in a request path.** The dashboard reads a
 static file, so nothing user-facing depends on the gateway being up. The chat
-proxy is the single exception, and it degrades to a disabled button.
+proxy and Idea match (`/api/focus`, `/api/rescore`) are the exceptions: both
+run on the viewer’s own key and degrade to a disabled control without one.
 
 **Nothing is discovered by following links.** Sources come from
 `config/sources.yaml` and nowhere else. That is the difference between a tool
@@ -414,6 +415,38 @@ native Anthropic Messages API. The process
 still emits uvicorn access lines (path only; `GRANT_SIFT_ACCESS_LOG=off` to
 silence) and in-memory rate-limit counters. Behind Keycloak the chat is private
 rather than anonymous.
+
+## Idea match
+
+**Idea match** is the dashboard panel for “I have a project idea — which open
+calls fit it?” It combines reverse lookup (#6) and a browser-local shortlist
+(#7) in one place. The homepage list is left alone; matches never filter it.
+
+```
+idea ──► Match with all open calls ──► prune ──► edit idea ──► auto re-rank
+```
+
+**Nothing about the idea is stored on the server.** The paragraph, the kept
+calls and the recommendation live in `localStorage` / the tab only — the same
+posture as the chat key. Clear browser data and they are gone; they do not
+follow you to another device.
+
+**Two endpoints, both on the viewer’s own key** (same Personalize gateway as
+chat; disabled without a key):
+
+| Endpoint | Role | Cost (approx.) |
+| --- | --- | --- |
+| `POST /api/focus` | Scan every live call (chunked, in parallel), then rank a shortlist | ~96k prompt tokens, ~1 min |
+| `POST /api/rescore` | Re-score kept calls against the idea as now written; pick one | ~2k tokens, seconds |
+
+Matching shows elapsed time and staged status while `/api/focus` runs. When it
+finishes, the panel opens with the hits and automatically generates a
+recommendation. Editing the idea and leaving the field re-ranks the kept calls
+without another full catalogue search.
+
+Closed calls are excluded from both prompts and from `web/opportunities.json`
+(`db.LIVE`). Affinity is **fit to this idea**, not the group’s relevance score,
+and the two are never averaged.
 
 ## Data model
 
