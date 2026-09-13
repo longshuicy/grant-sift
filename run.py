@@ -15,6 +15,9 @@ import argparse
 import smtplib
 import os
 import sys
+import threading
+import traceback
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 from grant_sift import db, pipeline
@@ -23,6 +26,16 @@ DB_PATH = os.environ.get("GRANT_SIFT_DB", "grant-sift.db")
 SMTP_HOST = os.environ.get("GRANT_SIFT_SMTP_HOST", "localhost")
 SMTP_PORT = int(os.environ.get("GRANT_SIFT_SMTP_PORT", "25"))
 SMTP_FROM = os.environ.get("GRANT_SIFT_FROM", "grant-sift@ncsa.illinois.edu")
+
+# In-process nightly run. Empty disables it, and `python run.py daily` from a
+# CronJob remains available for anyone whose database is not on shared storage.
+DAILY_AT = os.environ.get("GRANT_SIFT_DAILY_AT", "").strip()
+DAILY_TZ = os.environ.get("GRANT_SIFT_DAILY_TZ", "UTC").strip() or "UTC"
+DAILY_CATCHUP = os.environ.get("GRANT_SIFT_DAILY_CATCHUP", "on").lower() not in (
+    "0", "off", "false", "no")
+# Makes the scheduler's sleep interruptible. The thread is a daemon, so pod
+# shutdown does not wait on it; this is what lets a test stop the loop.
+_SHUTDOWN = threading.Event()
 
 
 def cmd_ingest(conn, args):
@@ -125,6 +138,95 @@ def cmd_feedback(conn, args):
     print(f"recorded {args.verdict} for {args.opportunity_id}")
 
 
+def _daily_tz():
+    """The scheduler's timezone, falling back to UTC rather than refusing to run."""
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(DAILY_TZ)
+    except Exception:  # noqa: BLE001 — bad tzdata should not cost the nightly run
+        print(f"  daily: unknown timezone {DAILY_TZ!r}, using UTC", flush=True)
+        from datetime import timezone
+        return timezone.utc
+
+
+def _overdue(db_path, tz, hours=20):
+    """True when no source has been touched recently.
+
+    A pod that restarts after the scheduled minute would otherwise skip the day
+    in silence, which is exactly the quiet failure this tool exists to catch.
+    `sources.last_run` stands in for "when did a daily last happen" so this
+    needs no extra table.
+    """
+    try:
+        conn = db.connect(db_path)
+        try:
+            row = conn.execute("SELECT MAX(last_run) FROM sources").fetchone()
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return False
+    if not row or not row[0]:
+        return True
+    try:
+        last = datetime.fromisoformat(row[0])
+    except ValueError:
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=tz)
+    return (datetime.now(tz) - last) > timedelta(hours=hours)
+
+
+def _run_daily_once(args):
+    conn = db.connect(args.db)
+    try:
+        cmd_daily(conn, args)
+    finally:
+        conn.close()
+
+
+def _daily_loop(args, hour, minute):
+    """Run the nightly pipeline in this process, once a day.
+
+    In-process rather than a separate CronJob because the SQLite file sits on
+    one PVC: WAL coordinates writers through a shared-memory index that is only
+    coherent within a single host, so a second pod writing the same file
+    corrupts it. One pod, one writer, and WAL works as intended.
+    """
+    tz = _daily_tz()
+
+    if DAILY_CATCHUP and _overdue(args.db, tz):
+        print("  daily: last run is over 20h old, catching up in 2 min", flush=True)
+        if _SHUTDOWN.wait(120):
+            return
+        _guarded_daily(args)
+
+    while True:
+        now = datetime.now(tz)
+        nxt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        print(f"  daily: next run {nxt.isoformat(timespec='minutes')}", flush=True)
+        # Re-check the clock on wake rather than trusting one long sleep: a
+        # suspended node or a DST shift makes the original delta wrong.
+        if _SHUTDOWN.wait((nxt - now).total_seconds()):
+            return
+        if datetime.now(tz) < nxt:
+            continue
+        _guarded_daily(args)
+
+
+def _guarded_daily(args):
+    """One nightly run. A failure is logged and the schedule continues."""
+    started = datetime.now()
+    try:
+        _run_daily_once(args)
+    except Exception:  # noqa: BLE001 — the loop must outlive one bad night
+        print("  daily: run failed\n" + traceback.format_exc(), flush=True)
+    else:
+        mins = (datetime.now() - started).total_seconds() / 60
+        print(f"  daily: run finished in {mins:.1f} min", flush=True)
+
+
 def cmd_serve(conn, args):
     """Bind to localhost by default.
 
@@ -135,6 +237,22 @@ def cmd_serve(conn, args):
     import uvicorn
     conn.close()          # uvicorn workers open their own connections
     print(f"dashboard on http://{args.host}:{args.port}")
+
+    if DAILY_AT:
+        try:
+            hour, minute = (int(x) for x in DAILY_AT.split(":", 1))
+            if not (0 <= hour < 24 and 0 <= minute < 60):
+                raise ValueError(DAILY_AT)
+        except ValueError:
+            sys.exit(f"GRANT_SIFT_DAILY_AT must be HH:MM, got {DAILY_AT!r}")
+        # Its own Namespace: cmd_daily rewrites feed/since/send per digest, and
+        # serve's copy should not change under it.
+        dargs = argparse.Namespace(**vars(args))
+        dargs.limit = int(os.environ.get("GRANT_SIFT_DAILY_LIMIT", "400"))
+        print(f"  nightly pipeline in-process at {DAILY_AT} {DAILY_TZ}, "
+              f"limit {dargs.limit}", flush=True)
+        threading.Thread(target=_daily_loop, args=(dargs, hour, minute),
+                         name="daily", daemon=True).start()
     if args.host not in ("127.0.0.1", "localhost"):
         print("  NOTE: not bound to localhost. There is no auth, and the roster "
               "names real people.")
