@@ -39,7 +39,7 @@ contain them.
 ## Commands
 
 ```bash
-python run.py daily [--limit N]     # the cron job, assesses N records (default 400)
+python run.py daily [--limit N]     # one nightly pass, assesses N records (default 400)
 python run.py ingest                # fetch, enrich, store
 python run.py assess [--limit N]    # score anything unassessed, live calls first
 python run.py assess --rematch      # clear no-match assessments first, after a roster addition
@@ -465,8 +465,9 @@ moves or a reviewer corrects it, which is what queues a re-score.
 the health table behind the stale banner.
 
 Postgres would only be warranted by many concurrent writers, replication, or
-running the app on a different host from the cron job over shared storage,
-where SQLite locking is unsafe.
+more than one host writing the file. SQLite locking is unsafe over shared
+storage, which is why the nightly pass runs inside the serving process
+rather than in a pod of its own.
 
 ## Failure mode to watch
 

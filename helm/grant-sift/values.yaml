@@ -48,28 +48,34 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Sized for serving plus the nightly pipeline, which now runs in this pod
+# (see GRANT_SIFT_DAILY_AT). An OOMKill part-way through a write is one of the
+# ways the database gets damaged, so the limits carry real headroom.
 resources:
   requests:
-    cpu: 100m
-    memory: 256Mi
+    cpu: 200m
+    memory: 512Mi
   limits:
-    cpu: "1"
-    memory: 1Gi
+    cpu: "2"
+    memory: 2Gi
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
 # ---------------------------------------------------------------------------
-# Persistence (SQLite). One volume shared by the web Deployment and the CronJob.
-# Prefer ReadWriteMany (NFS/EFS/CephFS). ReadWriteOnce only works if both pods
-# land on the same node, or if you pause the Deployment while the CronJob runs.
+# Persistence (SQLite).
 # ---------------------------------------------------------------------------
+# One SQLite file, therefore one writer. ReadWriteOnce is deliberate: WAL
+# coordinates writers through a shared-memory index that is only coherent
+# within a single host, so a second pod writing this file over NFS corrupts it.
+# The Deployment uses strategy: Recreate for the same reason, and the nightly
+# pipeline runs inside the web pod (GRANT_SIFT_DAILY_AT).
 persistence:
   enabled: true
   storageClassName: ""       # empty = cluster default
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   size: 5Gi
   existingClaim: ""          # set to reuse a claim; skips creating one
 
@@ -96,6 +102,13 @@ config:
   GRANT_SIFT_CHAT_ALLOWED_HOSTS: "lumen.ncsa.illinois.edu,api.openai.com,api.groq.com,openrouter.ai,generativelanguage.googleapis.com,api.fireworks.ai,api.together.xyz,api.deepseek.com,api.mistral.ai,api.anthropic.com,.openai.azure.com"
   GRANT_SIFT_ACCESS_LOG: "on"
   GRANT_SIFT_DAILY_LIMIT: "400"
+  # Nightly pipeline, in the serving process. Empty disables it, in which case
+  # schedule `run.py daily` yourself from somewhere that is the only writer.
+  GRANT_SIFT_DAILY_AT: "06:00"          # HH:MM, blank to turn the scheduler off
+  GRANT_SIFT_DAILY_TZ: America/Chicago
+  # Run on startup when the last run is over 20h old, so a pod restart across
+  # the scheduled minute does not silently skip a day.
+  GRANT_SIFT_DAILY_CATCHUP: "on"
   GRANT_SIFT_SMTP_HOST: ""
   GRANT_SIFT_SMTP_PORT: "25"
   GRANT_SIFT_FROM: grant-sift@example.com
@@ -121,29 +134,12 @@ roster:
 
 # Secret env. Leave empty in git; supply via --set, --set-file, or values-secrets.yaml.
 secrets:
-  # Required for the CronJob assess step.
+  # Required for the assess step of the nightly run.
   GRANT_SIFT_LLM_API_KEY: ""
   # Optional: create the Secret from an existing one instead of chart-managed.
   existingSecret: ""
   # Key name inside existingSecret that holds the LLM API key.
   existingSecretKey: GRANT_SIFT_LLM_API_KEY
-
-# Nightly pipeline (same work as scripts/daily.sh).
-cronjob:
-  enabled: true
-  schedule: "0 6 * * *"          # 06:00 UTC
-  timeZone: ""                   # e.g. America/Chicago if apiserver supports it
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  startingDeadlineSeconds: 600
-  resources:
-    requests:
-      cpu: 200m
-      memory: 512Mi
-    limits:
-      cpu: "2"
-      memory: 2Gi
 
 # ---------------------------------------------------------------------------
 # oauth2-proxy subchart (official). Points at Keycloak; Grant Sift stays header-only.

@@ -1,6 +1,6 @@
 # Helm chart for Grant Sift
 
-Deploys the dashboard (`run.py serve`), a nightly **CronJob** (`run.py daily`), a **PVC** for SQLite, and **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** in front of Keycloak.
+Deploys the dashboard (`run.py serve`, which also runs the nightly pipeline in-process), a **PVC** for SQLite, and **[oauth2-proxy](https://github.com/oauth2-proxy/manifests)** in front of Keycloak.
 
 Not Argo-managed yet — hand-roll with `helm upgrade --install`. Cluster overlay: `values-software-dev.yaml`.
 
@@ -12,10 +12,9 @@ SQLite is a file on the PVC (`/data/grant-sift.db`); there is no separate SQLite
 |---|---|
 | Deployment + Service | Web UI, feedback, chat proxy (ClusterIP only) |
 | oauth2-proxy + Ingress | Traefik → Keycloak login → app |
-| PVC (`nfs-taiga`) | Shared `/data`: `grant-sift.db` + `opportunities.json` (Deployment **and** CronJob) |
+| PVC (`nfs-taiga`) | `/data`: `grant-sift.db` + `opportunities.json`, written by the Deployment only |
 | Secret | `GRANT_SIFT_LLM_API_KEY` (pipeline) + `grant-sift-oauth2` (OIDC client) |
 | ConfigMap | Non-secret env + mounted `roster.yaml` |
-| CronJob | Same work as `scripts/daily.sh` |
 
 ## Prerequisites (software-dev)
 
@@ -140,9 +139,13 @@ You should bounce through Keycloak (NCSA), then see the dashboard.
 Or:
 
 ```bash
-kubectl -n grant-sift create job --from=cronjob/grant-sift-daily grant-sift-daily-manual
-kubectl -n grant-sift logs -f job/grant-sift-daily-manual
+kubectl -n grant-sift exec deploy/grant-sift -- python run.py ingest
+kubectl -n grant-sift exec deploy/grant-sift -- python run.py assess --limit 400
+kubectl -n grant-sift exec deploy/grant-sift -- python run.py export
 ```
+
+Run it inside the running pod, not as a separate Job: that pod is the only
+writer the database is allowed to have.
 
 ### 6. Smoke-check
 
@@ -179,11 +182,20 @@ helm upgrade --install grant-sift ./helm/grant-sift \
 kubectl -n grant-sift rollout restart deploy/grant-sift
 ```
 
-## CronJob
+## Nightly pipeline
 
-`0 6 * * *` America/Chicago.
+`GRANT_SIFT_DAILY_AT: "06:00"` with `GRANT_SIFT_DAILY_TZ: America/Chicago`.
 
-The CronJob mounts the **same PVC** as the dashboard at `/data`. `run.py daily` exports to `web/opportunities.json`, which the entrypoint has symlinked to `/data/opportunities.json`. The running pod serves that file directly (no rebuild, no separate JSON mount). Refresh the browser after a run to see updates (`Cache-Control: no-cache`).
+It runs on a background thread inside the serving process, **not** as a separate
+pod. SQLite's WAL mode coordinates writers through a shared-memory index that is
+only coherent within a single host, so a second pod writing the same file on a
+shared volume corrupts the database — which is exactly what happened in
+September 2026. One replica, `strategy: Recreate`, and no second writer.
+
+`GRANT_SIFT_DAILY_CATCHUP: "on"` runs the pass at startup when the last one is
+over 20h old, so a restart past the scheduled minute does not skip a day.
+
+`run.py daily` exports to `web/opportunities.json`, which the entrypoint has symlinked to `/data/opportunities.json`. The running pod serves that file directly (no rebuild, no separate JSON mount). Refresh the browser after a run to see updates (`Cache-Control: no-cache`).
 
 Users subscribe under **Personalize → Email digests**. Addresses land in SQLite `subscribers`; nightly digests email each feed when `GRANT_SIFT_SMTP_HOST` is set.
 
@@ -199,5 +211,5 @@ Campus SMTP (from [Tech Services KB 47888](https://answers.uillinois.edu/illinoi
 **Caveat:** that relay requires a campus-recognized source IP. Pods on private `10.x` (k3s) may be refused — if so, switch to [Cloud Email Delivery](https://answers.uillinois.edu/illinois/85362) (SocketLabs) or send from a campus VM with a public/campus IP.
 
 ```bash
-kubectl -n grant-sift create job --from=cronjob/grant-sift-daily grant-sift-daily-manual
+kubectl -n grant-sift exec deploy/grant-sift -- python run.py digest --feed closing-soon --send
 ```

@@ -18,6 +18,12 @@ image:
 # Image is public on GHCR — no pull secret required.
 imagePullSecrets: []
 
+# Still ReadWriteMany because this claim is already bound and a PVC's
+# accessModes are immutable — flipping it in place is rejected by the API
+# server, so it stays until a planned migration onto a fresh RWO claim.
+# That label is not what protects the database in any case: what protects it is
+# having exactly one writer (one nightly process, strategy: Recreate, one
+# replica). New installs get ReadWriteOnce from the chart default.
 persistence:
   enabled: true
   storageClassName: nfs-taiga
@@ -61,11 +67,10 @@ config:
   # https://answers.uillinois.edu/illinois/47888
   GRANT_SIFT_SMTP_HOST: outbound-relays.techservices.illinois.edu
   GRANT_SIFT_SMTP_PORT: "25"
-
-cronjob:
-  enabled: true
-  schedule: "0 6 * * *"
-  timeZone: America/Chicago
+  # Nightly pipeline, in the serving process.
+  GRANT_SIFT_DAILY_AT: "06:00"
+  GRANT_SIFT_DAILY_TZ: America/Chicago
+  GRANT_SIFT_DAILY_CATCHUP: "on"
 
 # Users hit oauth2-proxy Ingress, not the app Service directly.
 ingress:
