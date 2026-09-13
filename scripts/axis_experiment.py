@@ -14,10 +14,19 @@ This script answers that for a few cents, before the schema changes.
     export GRANT_SIFT_LLM_API_KEY=sk_...
     python scripts/axis_experiment.py --limit 30
 
-Read the verdict at the bottom. The number that matters is the median absolute
-correlation between PAIRS OF AXES. Correlation against the overall score is
-expected to be high -- the overall score is roughly their average -- and is
-reported only for context.
+Read the verdict at the bottom. The number that matters is how much the LENS
+ORDERINGS diverge, not how much the axis values correlate.
+
+That distinction was learned the hard way: the first live run returned a median
+|r| of 0.80 between axis pairs, which passed a 0.85 threshold, while the lens
+orderings it produced had rank correlations of 0.94-1.00 against each other --
+one lens reproduced the default list exactly. Axis correlation is a proxy, and
+a loose one, because five variables that merely co-move are enough to make a
+weighted mean of them nearly constant in rank. The orderings are the product;
+measure the product.
+
+Axis correlation is still reported, as a diagnosis for WHY an ordering did not
+move.
 """
 
 import argparse
@@ -33,6 +42,68 @@ from grant_sift import db, llm  # noqa: E402
 
 AXES = ["software_depth", "data_management", "compute_intensity",
         "sustainability", "partner_need"]
+
+# Must stay in step with LENSES in web/index.html. Duplicated rather than
+# parsed out of the page: this script is meant to run before the UI exists.
+LENSES = {
+    "overall": {"software_depth": 3, "data_management": 3, "compute_intensity": 2,
+                "sustainability": 2, "partner_need": 3},
+    "build":   {"software_depth": 5, "data_management": 2, "compute_intensity": 2,
+                "sustainability": 2, "partner_need": 1},
+    "data":    {"software_depth": 2, "data_management": 5, "compute_intensity": 2,
+                "sustainability": 2, "partner_need": 2},
+    "scale":   {"software_depth": 2, "data_management": 2, "compute_intensity": 5,
+                "sustainability": 1, "partner_need": 2},
+    "sustain": {"software_depth": 3, "data_management": 1, "compute_intensity": 0,
+                "sustainability": 5, "partner_need": 1},
+    "needus":  {"software_depth": 3, "data_management": 3, "compute_intensity": 1,
+                "sustainability": 0, "partner_need": 5},
+}
+
+
+def weighted(rec, w):
+    """Raw weighted mean -- the scoring the dashboard ships."""
+    return sum(w[a] * rec[a] for a in AXES) / sum(w.values())
+
+
+def profile(rec, w):
+    """Weighted mean of each axis's distance from THIS record's own average.
+
+    Strips overall quality and keeps only the shape: "relatively data-heavy
+    for its level" rather than "good". Measured as the one transform that
+    actually separates the lenses, because the model rates a good call high on
+    every axis at once, and a weighted mean of five co-moving variables barely
+    reorders anything.
+    """
+    m = sum(rec[a] for a in AXES) / len(AXES)
+    return sum(w[a] * (rec[a] - m) for a in AXES) / sum(w.values())
+
+
+def spearman(a, b):
+    """Rank correlation between two orderings of the same ids."""
+    ra = {v: i for i, v in enumerate(a)}
+    rb = {v: i for i, v in enumerate(b)}
+    n = len(a)
+    if n < 4:
+        return None
+    return 1 - 6 * sum((ra[k] - rb[k]) ** 2 for k in ra) / (n * (n * n - 1))
+
+
+def lens_divergence(rows, score_fn, floor=0):
+    """Rank correlation of each lens's ordering against the default lens.
+
+    Restricted to records at or above `floor`, because a lens only ever
+    reorders what the dashboard shows, and the corpus is bottom-heavy: records
+    scoring near zero are flat on every axis and drag every correlation toward
+    1.0 without ever being looked at.
+    """
+    sub = [r for r in rows if r["score"] >= floor]
+    if len(sub) < 4:
+        return {}, len(sub)
+    order = lambda w: [r["id"] for r in sorted(sub, key=lambda r: -score_fn(r, w))]  # noqa: E731
+    base = order(LENSES["overall"])
+    return ({k: spearman(base, order(w)) for k, w in LENSES.items() if k != "overall"},
+            len(sub))
 
 # Deliberately a copy rather than an import of ASSESS_SYSTEM. The point of the
 # experiment is to test this wording BEFORE it is committed to llm.py, and a
@@ -141,12 +212,29 @@ def main():
     ap.add_argument("--limit", type=int, default=30)
     ap.add_argument("--db", default="grant-sift.db")
     ap.add_argument("--threshold", type=float, default=0.85,
-                    help="median |r| between axis pairs at or above which the "
-                         "lens design is judged unworkable")
+                    help="median |r| between axis pairs, reported as a "
+                         "diagnosis only; it does not decide the verdict")
+    ap.add_argument("--diverge", type=float, default=0.90,
+                    help="rank correlation against the default lens below "
+                         "which a lens counts as producing a different list")
+    ap.add_argument("--floor", type=int, default=40,
+                    help="only records at or above this score are ranked: a "
+                         "lens never reorders what the dashboard does not show")
     ap.add_argument("--json", metavar="PATH",
                     help="also write the raw ratings, so the matrix can be "
                          "recomputed without paying for the calls again")
+    ap.add_argument("--replay", metavar="PATH",
+                    help="recompute the report from a previous --json run and "
+                         "make no calls. Thresholds and weights can then be "
+                         "re-argued for free.")
     args = ap.parse_args()
+
+    if args.replay:
+        raw = json.loads(Path(args.replay).read_text())
+        series = {k: [r[k] for r in raw] for k in AXES + ["score"]}
+        print(f"replaying {len(raw)} ratings from {args.replay}, no calls made\n")
+        report(raw, series, 0, args)
+        return
 
     conn = db.connect(args.db)
     records = sample(conn, args.limit)
@@ -176,6 +264,10 @@ def main():
         Path(args.json).write_text(json.dumps(raw, indent=2))
         print(f"\nraw ratings written to {args.json}")
 
+    report(raw, series, failed, args)
+
+
+def report(raw, series, failed, args):
     n = len(raw)
     if n < 3:
         sys.exit(f"\nonly {n} usable ratings ({failed} failed); need at least 3")
@@ -193,7 +285,7 @@ def main():
         print(f"  {k:<18} min={min(v):>3} max={max(v):>3} "
               f"mean={mean:>5.1f} sd={sd:>5.1f}{flag}")
 
-    print("\npairwise correlation between axes")
+    print("\npairwise correlation between axes (a diagnosis, not the verdict)")
     short = {k: k.split("_")[0][:5] for k in AXES}
     print("  " + " " * 18 + "".join(f"{short[k]:>8}" for k in AXES))
     pairs = []
@@ -221,21 +313,53 @@ def main():
     pairs.sort()
     median = pairs[len(pairs) // 2][0]
     worst, wa, wb = pairs[-1]
-    print(f"\nmedian |r| between axis pairs : {median:.2f}")
-    print(f"most redundant pair           : {wa} / {wb} at r={worst:.2f}")
+    print(f"\n  median |r| between axis pairs : {median:.2f}")
+    print(f"  most redundant pair           : {wa} / {wb} at r={worst:.2f}")
 
-    if median >= args.threshold:
-        print(f"\nVERDICT: FAIL. Median |r| {median:.2f} >= {args.threshold}. "
-              "The model is emitting one opinion five times, so every lens "
-              "would produce the same ordering. Reconsider #8 before building "
-              "the UI: fewer axes, sharper rubrics, or a different model.")
+    # ---- the verdict: do the LENS ORDERINGS actually differ? --------------
+    print(f"\nlens ordering vs the default lens "
+          f"(1.00 = the same list, so lower is better)")
+    verdict_rows = []
+    for label, fn in (("raw weighted mean (what the dashboard ships)", weighted),
+                      ("profile (axis minus the record's own mean)", profile)):
+        print(f"\n  {label}")
+        for floor in (0, args.floor):
+            div, n = lens_divergence(raw, fn, floor)
+            if not div:
+                print(f"    score >= {floor:<3} n={n:<4} too few records to rank")
+                continue
+            worst_lens = max(div.items(), key=lambda kv: kv[1])
+            print(f"    score >= {floor:<3} n={n:<4} " +
+                  "  ".join(f"{k}={v:.2f}" for k, v in div.items()))
+            if floor == args.floor:
+                verdict_rows.append((label, div, worst_lens, n))
+
+    print()
+    ship_label, ship_div, ship_worst, ship_n = verdict_rows[0]
+    prof_label, prof_div, prof_worst, prof_n = verdict_rows[1]
+    moved = sum(1 for v in ship_div.values() if v < args.diverge)
+    # A majority, not one. A single lens that reorders while four reproduce the
+    # default list is not a feature -- it is five chips of decoration and one
+    # that works, and shipping it teaches people the row does nothing.
+    need = max(1, (len(ship_div) + 1) // 2)
+    if moved < need:
+        print(f"VERDICT: FAIL. Above score {args.floor} (n={ship_n}), only "
+              f"{moved} of {len(ship_div)} lenses reorder (need {need}); the "
+              f"rest reproduce the default ordering at rank correlation >= "
+              f"{args.diverge}. Those chips would be decoration.")
+        better = sum(1 for v in prof_div.values() if v < args.diverge)
+        if better:
+            print(f"\nBUT profile scoring separates {better} of {len(prof_div)} "
+                  "lenses on the same ratings, so the axes do carry shape -- the "
+                  "raw weighted mean is what discards it. Change the scoring "
+                  "before changing the prompt or the model.")
+        print(f"\nMost redundant axis pair is {wa} / {wb} at r={worst:.2f}; "
+              "a lens leaning on both cannot diverge from one leaning on either.")
         sys.exit(1)
-    print(f"\nVERDICT: PASS. Median |r| {median:.2f} < {args.threshold}. "
-          "The axes carry independent signal, so lenses will produce "
-          "genuinely different orderings. Proceed with #8.")
-    if worst >= args.threshold:
-        print(f"Consider merging {wa} and {wb}: at r={worst:.2f} they are "
-              "close to the same question asked twice.")
+    print(f"VERDICT: PASS. Above score {args.floor} (n={ship_n}), {moved} of "
+          f"{len(ship_div)} lenses reorder (rank correlation < {args.diverge}). "
+          f"Least separated: {ship_worst[0]} at {ship_worst[1]:.2f} -- worth "
+          "asking whether that lens earns a chip.")
 
 
 if __name__ == "__main__":
