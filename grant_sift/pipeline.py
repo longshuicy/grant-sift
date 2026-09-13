@@ -637,7 +637,7 @@ def _aliases(name, entry):
     return [a for a in out if a and a != name.lower()]
 
 
-def export_json(conn, path="web/opportunities.json", min_score=40, roster=None):
+def export_json(conn, path="web/opportunities.json", min_score=0, roster=None):
     rows = conn.execute(
         """SELECT o.id, o.source, o.title, o.synopsis, o.agency, o.url, o.deadline,
                   o.award_ceiling, o.indirect_cap, o.first_seen,
