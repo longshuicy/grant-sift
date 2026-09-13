@@ -130,8 +130,8 @@ New users who sign in with Keycloak get org role **Editor** (`users.auto_assign_
 ### Public view + app link
 
 software-dev enables **anonymous Viewer** so the Ops & Signal board can be opened
-without a Grafana login. The grant-sift header shows a fourth strip item
-(**Ops** / *& signal*) when `GRANT_SIFT_GRAFANA_URL` is set — a plain link, no iframe.
+without a Grafana login. The grant-sift header shows a quiet **Ops & signal** link under the brand title
+when `GRANT_SIFT_GRAFANA_URL` is set — text link only, no iframe, not a fourth stat.
 
 ```
 https://grant-sift-grafana.software-dev.ncsa.illinois.edu/d/grant-sift-ops-signal?orgId=1&from=now-90d&to=now&theme=light&refresh=5m

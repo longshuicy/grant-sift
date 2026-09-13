@@ -39,16 +39,19 @@
   }
   .brand { font-family: var(--serif); font-size: 30px; letter-spacing: -0.01em; margin-right: auto; }
   .brand span { color: var(--ink-faint); font-size: 14px; font-family: var(--sans); margin-left: 12px; }
+  .brand-block { margin-right: auto; }
+  .brand-block .brand { margin-right: 0; display: block; }
+  .brand-block .grafana-link {
+    display: inline-block; margin-top: 4px;
+    font-size: 12.5px; color: var(--ink-faint); text-decoration: none;
+  }
+  .brand-block .grafana-link:hover { color: var(--moss); text-decoration: underline; }
+  .brand-block .grafana-link:focus-visible {
+    outline: 2px solid var(--moss); outline-offset: 2px;
+  }
   .stat b { font-family: var(--serif); font-size: 26px; font-weight: 600; display: block; line-height: 1.1; }
   .stat i { font-style: normal; font-size: 12.5px; color: var(--ink-soft); }
   .stat.warn b { color: var(--ember); }
-  a.stat {
-    text-decoration: none; color: inherit; cursor: pointer;
-  }
-  a.stat:hover b { color: var(--moss); }
-  a.stat:focus-visible {
-    outline: 2px solid var(--moss); outline-offset: 2px;
-  }
 
   /* Sits inside the strip, so it lands above the rule rather than pushing the
      list down. Muted on purpose: this is a standing caveat about coverage, not
@@ -370,14 +373,13 @@
 <div class="shell">
 
   <header class="strip">
-    <div class="brand">Grant Sift<span id="asof">loading</span></div>
+    <div class="brand-block">
+      <div class="brand">Grant Sift<span id="asof">loading</span></div>
+      <a class="grafana-link" id="grafana-link" hidden href="#" target="_blank" rel="noopener">Ops &amp; signal</a>
+    </div>
     <div class="stat"><b id="n-open">..</b><i>open calls</i></div>
     <div class="stat warn"><b id="n-soon">..</b><i>close within 30 days</i></div>
     <div class="stat"><b id="n-match">..</b><i>match a past collaborator</i></div>
-    <a class="stat" id="grafana-link" hidden href="#" target="_blank" rel="noopener"
-       title="Ops and ranking charts in Grafana">
-      <b>Ops</b><i>&amp; signal</i>
-    </a>
     <div class="whoami" id="whoami" hidden>
       <div class="who" id="who"></div>
       <button type="button" class="cfgbtn" id="cfgbtn" aria-expanded="false"
