@@ -184,6 +184,7 @@
   .act { font-size: 13px; color: var(--moss); text-decoration: none; }
   .act:hover { text-decoration: underline; }
   .amt { color: var(--ink); font-weight: 500; }
+  .noamt { color: var(--ink-faint); }
   .nosyn { margin: 8px 0 0; font-size: 13px; color: var(--ink-faint); }
   .areatag { display: inline-block; float: right; margin: 0 0 4px 8px; padding: 1px 7px;
              max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -421,12 +422,17 @@
       <button class="chip" data-filter="embedded" aria-pressed="false">Domain calls</button>
       <button class="chip" data-filter="ci" aria-pressed="false">CI programs</button>
       <button class="chip" data-filter="foundation" aria-pressed="false">Foundations</button>
+      <select id="funder" class="sortsel" aria-label="Filter by funder">
+        <option value="">All funders</option>
+      </select>
       <select id="area" class="sortsel" aria-label="Filter by roster area">
         <option value="">All roster areas</option>
       </select>
       <select id="sort" class="sortsel">
         <option value="score" selected>Sort: highest relevance</option>
         <option value="deadline">Sort: soonest deadline</option>
+        <option value="award-desc">Sort: largest award</option>
+        <option value="award-asc">Sort: smallest award</option>
         <option value="new">Sort: recently added</option>
       </select>
     </div>
@@ -529,7 +535,7 @@
 
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "";
+let DATA = [], ACTIVE = new Set(), QUERY = "", SORT = "score", AREA = "", FUNDER = "";
 let PAGE = 1, PAGE_SIZE = 25;
 
 const daysAway = d => d ? Math.ceil((new Date(d + "T00:00:00") - new Date().setHours(0,0,0,0)) / 864e5) : null;
@@ -543,6 +549,67 @@ function shortArea(d, max = 42) {
   const first = d.split(",")[0].trim();
   if (first.length >= 10 && first.length <= max) return first;
   return d.slice(0, max - 1).replace(/\s+\S*$/, "").trimEnd() + "…";
+}
+
+// Award ceilings arrive as prose, so sorting on the raw string would put
+// "$9,000" above "$10,000,000". Take the LARGEST dollar figure in the text:
+// 292 of the 793 award strings are ranges ("$50,000 to $600,000"), and the
+// ceiling is the number a person means when they sort by award size.
+//
+// Deliberately dollars only. Eight records quote euros or pounds, and
+// comparing 15,000 EUR against 15,000 USD as if they were the same number is
+// worse than declining to rank them. They keep their label on the card and
+// sort with the unknowns.
+const AWARD_RE = /\$\s*([\d,]+(?:\.\d+)?)/g;
+function parseAwardUSD(text) {
+  if (!text) return null;
+  let best = null;
+  for (const m of String(text).matchAll(AWARD_RE)) {
+    const n = parseFloat(m[1].replace(/,/g, ""));
+    if (Number.isFinite(n) && (best === null || n > best)) best = n;
+  }
+  return best;
+}
+
+// grants.gov reports an agency CODE, not a name: "HHS-NIH11", "DOD-AMRAA",
+// "DOC-DOCNOAAERA". Offering those raw makes a 152-option dropdown of
+// acronyms, 69 of them holding a single record. Fold them into the funder a
+// person would actually name. HHS is split because it alone is half the
+// corpus, so one "HHS" bucket would filter almost nothing.
+const FUNDER_FAMILIES = [
+  [/^HHS-NIH/,     "NIH"],
+  [/^HHS-CDC/,     "CDC"],
+  [/^HHS-FDA/,     "FDA"],
+  [/^HHS-HRSA/,    "HRSA"],
+  [/^HHS/,         "HHS (other)"],
+  [/^NSF/,         "NSF"],
+  [/^DOD/,         "Defense"],
+  [/^DOS/,         "State Department"],
+  [/^DOI/,         "Interior"],
+  [/^USDA/,        "USDA"],
+  [/^DOC-DOCNOAA/, "NOAA"],
+  [/^DOC/,         "Commerce"],
+  [/^NASA/,        "NASA"],
+  [/^(DOE|PAMS)/,  "Energy"],
+  [/^IMLS/,        "IMLS"],
+  [/^(USDOT|DOT)/, "Transportation"],
+  [/^USDOJ/,       "Justice"],
+  [/^DOL/,         "Labor"],
+  [/^HUD/,         "HUD"],
+  [/^ED/,          "Education"],
+  [/^VA/,          "Veterans Affairs"],
+  [/^NEH/,         "NEH"],
+  [/^EPA/,         "EPA"],
+  [/^SBA/,         "SBA"],
+];
+function funderFamily(o) {
+  // Foundations and feeds already carry a readable name; only grants.gov
+  // needs decoding. An unrecognised code falls through to itself rather than
+  // into an "Other" bucket, so nothing becomes unfindable.
+  if (o.source !== "grants.gov") return o.source || o.agency || "";
+  const code = (o.agency || "").toUpperCase();
+  for (const [re, label] of FUNDER_FAMILIES) if (re.test(code)) return label;
+  return o.agency || o.source || "";
 }
 
 function viaMe(o) {
@@ -568,6 +635,7 @@ function viaMe(o) {
 
 function matches(o) {
   if (AREA && o.match_domain !== AREA) return false;
+  if (FUNDER && o._funder !== FUNDER) return false;
   if (QUERY) {
     const c = o.contact || {};
     // Our own people are searchable too: "kooper" should answer "what is on
@@ -589,12 +657,29 @@ function matches(o) {
   return true;
 }
 
+// An unknown award is not a small one. 468 records carry no award figure at
+// all and eight more quote a currency we decline to convert; sorting those as
+// zero would open "smallest award" with 476 blanks before the first real
+// number. Unknowns go last in BOTH directions, which is why this cannot be a
+// plain numeric comparator.
+function byAward(dir) {
+  return (a, b) => {
+    const x = a._award, y = b._award;
+    if (x === null && y === null) return b.score - a.score;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return (dir === "asc" ? x - y : y - x) || b.score - a.score;
+  };
+}
+
 function sortRows(rows) {
   const by = {
-    deadline: (a,b) => (a.deadline || "9999") .localeCompare(b.deadline || "9999") || b.score - a.score,
-    score:    (a,b) => b.score - a.score,
-    new:      (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "")
-  }[SORT];
+    deadline:      (a,b) => (a.deadline || "9999") .localeCompare(b.deadline || "9999") || b.score - a.score,
+    score:         (a,b) => b.score - a.score,
+    "award-desc":  byAward("desc"),
+    "award-asc":   byAward("asc"),
+    new:           (a,b) => (b.first_seen || "").localeCompare(a.first_seen || "")
+  }[SORT] || ((a,b) => b.score - a.score);
   return [...rows].sort(by);
 }
 
@@ -658,7 +743,11 @@ function rowHTML(o) {
   }
 
   const bits = [esc(o.agency || o.source)];
-  if (o.award_ceiling) bits.push(`<span class="amt">award ${esc(o.award_ceiling)}</span>`);
+  // "not stated" and "small" are different facts, and an empty slot reads as
+  // the second. Say which it is, so a sort by award is interpretable.
+  bits.push(o.award_ceiling
+    ? `<span class="amt">award ${esc(o.award_ceiling)}</span>`
+    : `<span class="noamt">award not stated</span>`);
   const cap = o.indirect_cap
     ? `<span class="cap">indirect capped at ${esc(o.indirect_cap)}</span>` : "";
 
@@ -1481,6 +1570,12 @@ document.getElementById("list").addEventListener("submit", async e => {
 
 function boot(payload) {
   DATA = payload.opportunities || [];
+  // Parsed once at load, not inside the comparator: sorting 1,000 rows would
+  // otherwise re-run the regex tens of thousands of times per keystroke.
+  DATA.forEach(o => {
+    o._award  = parseAwardUSD(o.award_ceiling);
+    o._funder = funderFamily(o);
+  });
   const soon = DATA.filter(o => { const a = daysAway(o.deadline); return a !== null && a >= 0 && a <= 30; });
   document.getElementById("n-open").textContent  = DATA.length;
   document.getElementById("n-soon").textContent  = soon.length;
@@ -1503,6 +1598,20 @@ function boot(payload) {
     });
   if (!counts.size) sel.disabled = true;
 
+  // Commonest funder first, not alphabetical: the list is long and the head
+  // of it is where nearly every record is.
+  const fcounts = new Map();
+  DATA.forEach(o => o._funder && fcounts.set(o._funder, (fcounts.get(o._funder) || 0) + 1));
+  const fsel = document.getElementById("funder");
+  [...fcounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([f, n]) => {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = `${f} (${n})`;
+      fsel.appendChild(opt);
+    });
+  if (!fcounts.size) fsel.disabled = true;
+
   const stale = payload.stale_sources || [];
   if (stale.length) {
     document.getElementById("alarm").innerHTML =
@@ -1524,6 +1633,9 @@ document.getElementById("sort").addEventListener("change", e => {
 });
 document.getElementById("area").addEventListener("change", e => {
   AREA = e.target.value; PAGE = 1; render();
+});
+document.getElementById("funder").addEventListener("change", e => {
+  FUNDER = e.target.value; PAGE = 1; render();
 });
 // Clicking an area tag on a row filters to it, and keeps the picker in sync.
 document.getElementById("list").addEventListener("click", e => {
