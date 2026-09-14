@@ -59,6 +59,12 @@ resources:
     cpu: "2"
     memory: 2Gi
 
+# Uvicorn stops draining in-flight requests at GRANT_SIFT_GRACEFUL_SHUTDOWN
+# (10s) and exits; this leaves headroom for that to finish. Keep the two in
+# step — if uvicorn's deadline ever exceeds this, the kubelet SIGKILLs the pod
+# mid-shutdown and the container reports exit 137 (issue #25).
+terminationGracePeriodSeconds: 30
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

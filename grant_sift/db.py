@@ -164,7 +164,15 @@ def now() -> str:
 
 
 def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    """Open a connection. Cheap by design: three PRAGMAs and nothing else.
+
+    Every request on the dashboard opens one of these, and the database file
+    lives on a shared volume where each extra statement is a network
+    round-trip. Schema creation and migrations belong to init(), which runs
+    once per process at startup — not here. See issue #25: /api/health used to
+    re-run the whole bootstrap per probe, which blew past the 1s liveness
+    budget and put the pod in CrashLoopBackOff.
+    """
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     # WAL lets the web app insert feedback while the nightly job is writing.
@@ -173,41 +181,54 @@ def connect(path: str = "grant-sift.db") -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
-    if "zero_streak" not in cols:
-        conn.execute("ALTER TABLE sources ADD COLUMN zero_streak INTEGER DEFAULT 0")
-        conn.commit()
-    ocols = {r["name"] for r in conn.execute("PRAGMA table_info(opportunities)")}
-    if "screen" not in ocols:
-        conn.execute("ALTER TABLE opportunities ADD COLUMN screen TEXT")
-        conn.commit()
-    acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
-    for col in ("match_domain", "match_kind", "summary", "axes_json", "facts_json"):
-        if col not in acols:
-            conn.execute(f"ALTER TABLE assessments ADD COLUMN {col} TEXT")
-            conn.commit()
-    fcols = {r["name"] for r in conn.execute("PRAGMA table_info(feedback)")}
-    for col in ("aspect", "created_by"):
-        if col not in fcols:
-            conn.execute(f"ALTER TABLE feedback ADD COLUMN {col} TEXT")
-            conn.commit()
-
-    # Opportunities enriched before detail_cache existed already hold the data.
-    # Seed from them once so upgrading an existing database does not re-fetch
-    # details it already paid for.
-    if not conn.execute("SELECT 1 FROM detail_cache LIMIT 1").fetchone():
-        conn.execute(
-            """INSERT OR IGNORE INTO detail_cache
-                 (id, ok, synopsis, award_ceiling, deadline, fetched_at)
-               SELECT id, 1, synopsis, award_ceiling, deadline, ?
-               FROM opportunities
-               WHERE synopsis IS NOT NULL AND TRIM(synopsis) != ''""",
-            (now(),),
-        )
-        conn.commit()
     return conn
+
+
+def init(path: str = "grant-sift.db") -> None:
+    """Create the schema and apply migrations. Call once per process, at
+    startup, before anything serves traffic.
+
+    Idempotent, so a second call is harmless — but it is not free, so no
+    request path should reach it.
+    """
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = connect(path)
+    try:
+        conn.executescript(SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(sources)")}
+        if "zero_streak" not in cols:
+            conn.execute("ALTER TABLE sources ADD COLUMN zero_streak INTEGER DEFAULT 0")
+            conn.commit()
+        ocols = {r["name"] for r in conn.execute("PRAGMA table_info(opportunities)")}
+        if "screen" not in ocols:
+            conn.execute("ALTER TABLE opportunities ADD COLUMN screen TEXT")
+            conn.commit()
+        acols = {r["name"] for r in conn.execute("PRAGMA table_info(assessments)")}
+        for col in ("match_domain", "match_kind", "summary", "axes_json", "facts_json"):
+            if col not in acols:
+                conn.execute(f"ALTER TABLE assessments ADD COLUMN {col} TEXT")
+                conn.commit()
+        fcols = {r["name"] for r in conn.execute("PRAGMA table_info(feedback)")}
+        for col in ("aspect", "created_by"):
+            if col not in fcols:
+                conn.execute(f"ALTER TABLE feedback ADD COLUMN {col} TEXT")
+                conn.commit()
+
+        # Opportunities enriched before detail_cache existed already hold the
+        # data. Seed from them once so upgrading an existing database does not
+        # re-fetch details it already paid for.
+        if not conn.execute("SELECT 1 FROM detail_cache LIMIT 1").fetchone():
+            conn.execute(
+                """INSERT OR IGNORE INTO detail_cache
+                     (id, ok, synopsis, award_ceiling, deadline, fetched_at)
+                   SELECT id, 1, synopsis, award_ceiling, deadline, ?
+                   FROM opportunities
+                   WHERE synopsis IS NOT NULL AND TRIM(synopsis) != ''""",
+                (now(),),
+            )
+            conn.commit()
+    finally:
+        conn.close()
 
 
 def hash_text(*parts: str) -> str:

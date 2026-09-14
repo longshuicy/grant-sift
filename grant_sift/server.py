@@ -35,6 +35,7 @@ import secrets
 import time
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -134,7 +135,20 @@ FOCUS_PER_CHUNK = int(os.environ.get("GRANT_SIFT_FOCUS_PER_CHUNK", "15"))
 FOCUS_RERANK_CHARS = 1500
 
 
-app = FastAPI(title="Grant Sift", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Schema and migrations, once, before the first request.
+
+    db.connect() no longer does this, so somebody has to. Here rather than in
+    run.py alone, so that serving the app directly (`uvicorn
+    grant_sift.server:app`) still gets a database with tables in it.
+    """
+    db.init(DB_PATH)
+    yield
+
+
+app = FastAPI(title="Grant Sift", docs_url=None, redoc_url=None,
+              lifespan=lifespan)
 
 _hits: dict[str, deque] = defaultdict(deque)
 
@@ -173,6 +187,26 @@ def _conn():
 
 @app.get("/api/health")
 def health():
+    """Liveness only: is this process up and answering. No disk, no database.
+
+    This is what the kubelet probes, on a 1s budget, twice every 20 seconds.
+    It used to open the database and COUNT(*) the opportunities table, which
+    on the shared volume is dozens of round-trips — slow enough often enough
+    to fail the probe and restart a perfectly healthy pod (issue #25). A
+    liveness probe answers "is the process alive", nothing more. For the
+    database check, see /api/ready.
+    """
+    return {"ok": True, "auth": auth.status()}
+
+
+@app.get("/api/ready")
+def ready():
+    """The deep check: can we actually reach the database.
+
+    Deliberately not what the kubelet probes — a database that is briefly slow
+    is not a reason to kill the process. This is for an operator asking why
+    something looks wrong, so it may take its time.
+    """
     try:
         conn = _conn()
         n = conn.execute("SELECT COUNT(*) n FROM opportunities").fetchone()["n"]

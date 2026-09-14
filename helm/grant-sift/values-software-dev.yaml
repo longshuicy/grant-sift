@@ -18,6 +18,12 @@ image:
 # Image is public on GHCR — no pull secret required.
 imagePullSecrets: []
 
+# TODO(#25): move this volume off nfs-taiga onto Cinder block storage. SQLite
+# is on NFS here, and WAL's shared-memory index is not coherent over NFS — the
+# same single-host assumption the comment below describes. NFS latency is also
+# what made the old /api/health probe time out. Not done in this change: it
+# needs a fresh RWO claim and a copy of the data, on a planned window.
+#
 # Still ReadWriteMany because this claim is already bound and a PVC's
 # accessModes are immutable — flipping it in place is rejected by the API
 # server, so it stays until a planned migration onto a fresh RWO claim.

@@ -241,6 +241,7 @@ def main():
         report(raw, series, 0, args)
         return
 
+    db.init(args.db)
     conn = db.connect(args.db)
     records = sample(conn, args.limit, args.min_prior)
     if not records:

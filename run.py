@@ -34,6 +34,11 @@ DAILY_AT = os.environ.get("GRANT_SIFT_DAILY_AT", "").strip()
 DAILY_TZ = os.environ.get("GRANT_SIFT_DAILY_TZ", "UTC").strip() or "UTC"
 DAILY_CATCHUP = os.environ.get("GRANT_SIFT_DAILY_CATCHUP", "on").lower() not in (
     "0", "off", "false", "no")
+# Seconds uvicorn may spend draining in-flight requests on SIGTERM before it
+# stops waiting and exits. Must stay under the pod's
+# terminationGracePeriodSeconds (30s in the chart) or the kubelet SIGKILLs us
+# first, which is what produced the exit-137 restart loop in issue #25.
+GRACEFUL_SHUTDOWN = int(os.environ.get("GRANT_SIFT_GRACEFUL_SHUTDOWN", "10"))
 # Makes the scheduler's sleep interruptible. The thread is a daemon, so pod
 # shutdown does not wait on it; this is what lets a test stop the loop.
 _SHUTDOWN = threading.Event()
@@ -282,8 +287,14 @@ def cmd_serve(conn, args):
         "0", "off", "false", "no")
     if not access_log:
         print("  access log off: no per-request lines will be written")
+    # Bound the graceful shutdown. Uvicorn otherwise waits on in-flight
+    # request tasks with no deadline: on SIGTERM it printed "Waiting for
+    # background tasks to complete" and never exited, so the kubelet SIGKILLed
+    # it 30s later and the container reported exit 137 (issue #25). This must
+    # stay comfortably under terminationGracePeriodSeconds in the chart.
     uvicorn.run("grant_sift.server:app", host=args.host, port=args.port,
-                log_level="info", access_log=access_log)
+                log_level="info", access_log=access_log,
+                timeout_graceful_shutdown=GRACEFUL_SHUTDOWN)
 
 
 def cmd_status(conn, args):
@@ -367,6 +378,9 @@ def main():
         if not hasattr(args, attr):
             setattr(args, attr, default)
 
+    # Schema and migrations, once, before anything opens a second connection.
+    # db.connect() is now bare — see grant_sift/db.py.
+    db.init(args.db)
     conn = db.connect(args.db)
     try:
         {"ingest": cmd_ingest, "assess": cmd_assess, "export": cmd_export,
