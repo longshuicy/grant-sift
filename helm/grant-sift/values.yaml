@@ -163,6 +163,14 @@ oauth2-proxy:
       provider = "keycloak-oidc"
       email_domains = [ "*" ]
       upstreams = [ "http://grant-sift:8080/" ]
+      # /api/focus is a long request by design: parallel catalogue chunks then
+      # a rank pass, each allowed GRANT_SIFT_CHAT_TIMEOUT (120s) against the
+      # viewer's gateway. oauth2-proxy defaults to 30s, which cut the request
+      # off mid-flight and returned its own HTML 502 - no "detail" field, so
+      # the browser fell back to a bare "focus failed (502)" and the real
+      # cause never reached the user. Sits above the app's own ceiling so the
+      # app's error message wins the race.
+      upstream_timeout = "180s"
       skip_provider_button = true
       set_xauthrequest = true
       pass_access_token = false
