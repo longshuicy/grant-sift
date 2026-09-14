@@ -30,6 +30,10 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "grant-sift.serviceAccountName" . }}
+      # Explicit rather than relying on the 30s default, and paired with
+      # GRANT_SIFT_GRACEFUL_SHUTDOWN in run.py: uvicorn stops draining at 10s,
+      # leaving 20s of headroom to exit on its own instead of being SIGKILLed.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -59,18 +63,27 @@ spec:
                 secretKeyRef:
                   name: {{ include "grant-sift.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKey }}
+          # /api/health touches no disk, so a slow answer means the process
+          # is genuinely wedged, not that the volume is busy. timeoutSeconds
+          # is set explicitly all the same: the k8s default is 1s, and leaving
+          # it implicit is how a healthy pod ended up in CrashLoopBackOff
+          # (issue #25).
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/health
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- $mounts := include "grant-sift.volumeMounts" . | trim }}
