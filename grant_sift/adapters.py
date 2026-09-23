@@ -238,25 +238,38 @@ def rss(name, url):
 # Foundation pages, fetch, strip, let the model read it
 # --------------------------------------------------------------------------
 
-def foundation_page(conn, name, url, force=False):
-    """No CSS selectors. A redesign changes the text, not the contract."""
+def foundation_page(conn, name, url, force=False, min_text=None):
+    """No CSS selectors. A redesign changes the text, not the contract.
+
+    Returns a list of records, or None when the page has not moved since the
+    last run. None and [] mean different things and callers must not conflate
+    them: None is "we did not read it", [] is "we read it and there were no
+    calls in it". Counting the first as the second makes every stable page look
+    like it is failing, which is how the stale banner stops being read.
+
+    `min_text` raises the floor for one source. A global 500 cannot serve both
+    a 43k corporate page and a 636-char programme list, and the pages that sit
+    just over it -- Gates at 1,011, Cisco's index at 507 -- are exactly the ones
+    that parse fine and contain no calls.
+    """
     r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
     r.raise_for_status()
     text = _strip_html(r.text)
+    floor = min_text or MIN_PAGE_TEXT
 
     # A crawler that dies loudly is fine; one that reports success on an empty
     # page is how you end up trusting a list that stopped being complete.
     # A bot wall (Wellcome answers 202 with no body) and a client-rendered page
     # (Sloan ships 4KB of JavaScript) both land here, and both used to be
     # recorded as a success with zero calls found.
-    if len(text) < MIN_PAGE_TEXT:
+    if len(text) < floor:
         raise RuntimeError(
-            f"page text only {len(text)} chars (under {MIN_PAGE_TEXT}); "
+            f"page text only {len(text)} chars (under {floor}); "
             "likely a bot wall or a JavaScript-rendered page, not a real listing"
         )
 
     if not db.page_changed(conn, url, text) and not force:
-        return []  # hash before you spend
+        return None  # hash before you spend; NOT the same as finding nothing
 
     calls = llm.extract_calls(text, name)
     records = []
@@ -277,6 +290,102 @@ def foundation_page(conn, name, url, force=False):
             "indirect_cap": c.get("indirect_cap"),
             "raw": c,
         })
+    return _dedupe(records)
+
+
+# --------------------------------------------------------------------------
+# Sitemap-expanded sources
+# --------------------------------------------------------------------------
+
+# A sitemap can be enormous -- gatesfoundation.org/sitemap_grants.xml lists
+# 41,507 committed grants. Without a ceiling, one loose `include` is tens of
+# thousands of fetches and model calls in a single night. Refuse loudly instead:
+# silently taking the first N is the "reports success while going incomplete"
+# failure this tool exists to avoid.
+SITEMAP_MAX = 200
+
+
+def _sitemap_urls(url, depth=0, seen=None):
+    """Read a sitemap, descending into a <sitemapindex> at most two levels.
+
+    Match nesting on the PATH, not the whole URL: Wellcome paginates its index
+    as sitemap.xml?page=1, which an endswith(".xml") test mistakes for content.
+    """
+    seen = seen if seen is not None else set()
+    if url in seen:
+        return []
+    seen.add(url)
+    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    r.raise_for_status()
+    body = r.text
+    is_index = "<sitemapindex" in body[:2000].lower()
+    out = []
+    for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body):
+        path = loc.split("?", 1)[0].split("#", 1)[0]
+        nested = path.endswith((".xml", ".xml.gz")) or "sitemap" in path.lower()
+        if (is_index or nested) and depth < 2:
+            out += _sitemap_urls(loc, depth + 1, seen)
+        else:
+            out.append(loc)
+    return sorted(set(out))
+
+
+def sitemap_pages(conn, cfg, force=False):
+    """Expand ONE pinned sitemap into the call pages it lists, and read each.
+
+    This exists because some funders publish a listing their own visitors can
+    read but a fetcher cannot: Wellcome's schemes page is 1,947 chars of filter
+    chrome around a result count, with all 13 titles injected by JavaScript.
+    Their individual scheme pages are plain server-rendered HTML, and the
+    sitemap is where you find out which ones exist.
+
+    It is also the answer to churn. 63 of Wellcome's 112 scheme pages are
+    already closed; pinning the live ones by hand means pruning 404s forever,
+    and never seeing a scheme published next week. Here the reviewed thing is
+    the RULE -- one domain, one include, one exclude, one ceiling -- and the
+    URLs follow from it.
+
+    Returns None when every page was unchanged, for the reason foundation_page
+    does: "nothing was re-read" is not "nothing is there".
+    """
+    name = cfg["name"]
+    urls = _sitemap_urls(cfg["sitemap"])
+    inc, exc = cfg.get("include"), cfg.get("exclude")
+    if inc:
+        urls = [u for u in urls if re.search(inc, u)]
+    if exc:
+        urls = [u for u in urls if not re.search(exc, u)]
+    cap = int(cfg.get("max") or SITEMAP_MAX)
+    if len(urls) > cap:
+        raise RuntimeError(
+            f"{name}: sitemap matched {len(urls)} urls, over the cap of {cap}. "
+            "Tighten `include`/`exclude` or raise `max` deliberately -- this is "
+            "not truncated, because a quietly shortened list is the worse bug"
+        )
+    if not urls:
+        raise RuntimeError(
+            f"{name}: sitemap matched no urls for include={inc!r}. The site was "
+            "reachable, so the pattern is stale, not the source"
+        )
+
+    records, read, failed = [], 0, []
+    for u in urls:
+        try:
+            got = foundation_page(conn, name, u, force=force, min_text=cfg.get("min_text"))
+        except Exception as exc:  # noqa: BLE001
+            failed.append(f"{u.rsplit('/', 1)[-1]}: {str(exc)[:60]}")
+            continue
+        if got is None:
+            continue                       # unchanged since last run
+        read += 1
+        records += got
+    # A closed scheme 404s (Wellcome moves it to a -closed slug), so a handful
+    # of failures is the normal state of a healthy source, not an outage. All
+    # of them failing is not.
+    if failed and len(failed) == len(urls):
+        raise RuntimeError(f"{name}: all {len(urls)} pages failed; first: {failed[0]}")
+    if read == 0:
+        return None
     return _dedupe(records)
 
 

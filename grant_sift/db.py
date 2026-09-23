@@ -357,20 +357,31 @@ def needs_detail(conn, opp_id: str) -> bool:
     return row is None or not (row["synopsis"] or "").strip()
 
 
-def record_source_run(conn, name, kind, url, ok, yielded=0, error=None):
+def record_source_run(conn, name, kind, url, ok, yielded=0, error=None, unchanged=False):
     """Record one source run, maintaining the consecutive zero-yield streak.
 
     Done in Python rather than a CASE expression because the streak depends on
     the previous row, and getting that wrong is how the stale banner goes quiet.
+
+    `unchanged` means the page hashed the same as last time, so nothing was
+    re-read. That is NOT a zero yield, and counting it as one was a real bug:
+    every page that sits still -- which is most of them, most weeks -- built a
+    streak and got flagged stale after three runs. A banner that cries wolf on
+    healthy sources is worse than no banner, because the one case it exists to
+    catch (Gates, Wellcome: a live fetch that parses and contains no calls)
+    then arrives among the false alarms.
     """
     ts = now()
     prev = conn.execute(
-        "SELECT zero_streak FROM sources WHERE name = ?", (name,)
+        "SELECT zero_streak, last_yield FROM sources WHERE name = ?", (name,)
     ).fetchone()
     prev_streak = (prev["zero_streak"] or 0) if prev else 0
 
     if not ok:
         streak = prev_streak          # a hard failure is already visible via last_error
+    elif unchanged:
+        streak = prev_streak          # not re-read, so nothing was learned either way
+        yielded = (prev["last_yield"] or 0) if prev else 0
     elif yielded == 0:
         streak = prev_streak + 1      # succeeded and returned nothing: the quiet failure
     else:
