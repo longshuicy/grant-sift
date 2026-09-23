@@ -85,7 +85,9 @@ feeds:
     url: https://www.researchsoft.org/blog/index.xml
 
 # Fixed list. Add a source only when one of these misses something you
-# would have wanted. Fifteen is plenty to start.
+# would have wanted, and fetch the URL before you write it down -- half the
+# plausible-looking funding pages are client-rendered shells or lists of past
+# grants, and both of those fail quietly rather than loudly.
 foundations:
   - name: Chan Zuckerberg Initiative
     url: https://chanzuckerberg.com/science/science-funding/
@@ -131,16 +133,6 @@ foundations:
     url: https://www.sovereign.tech/programs
     cadence: monthly
 
-  - name: Wellcome Trust
-    url: https://wellcome.org/research-funding/schemes
-    cadence: weekly
-    notes: >
-      UNREACHABLE by plain HTTP: every path answers 202 with an empty body, a
-      bot wall. No URL change fixes this; it needs a headless browser or their
-      API. Left in deliberately so it fails loudly rather than disappearing.
-      Wellcome co-funds EOSS, which still surfaces via the CZI page.
-      Verified 2026-09-04.
-
   - name: Kavli Foundation
     url: https://www.kavlifoundation.org/funding-opportunities
     cadence: monthly
@@ -183,3 +175,228 @@ foundations:
       community of university open-source programme offices. Human-curated, so
       it stays in always_assess_sources. Was configured as an RSS feed, but the
       site publishes none -- fetched as a page instead. Verified 2026-09-04.
+
+  # ------------------------------------------------------------------
+  # Added 2026-09-23. Every URL below was fetched through the same path
+  # the adapter uses (plain GET, _strip_html, the MIN_PAGE_TEXT floor)
+  # before being written down, and the notes say what was rejected and why.
+  # ------------------------------------------------------------------
+
+  - name: Coefficient Giving
+    url: https://coefficientgiving.org/request-for-proposals/
+    cadence: weekly
+    notes: >
+      formerly Open Philanthropy -- openphilanthropy.org now redirects here, so
+      the old name will not find it. The richest of these additions: 40k chars
+      of server-rendered RFPs carrying their own deadlines. Verified 2026-09-23.
+
+  - name: John Templeton Foundation
+    url: https://www.templeton.org/grants/apply-for-grant
+    cadence: weekly
+    notes: >
+      /funding-areas is programme prose with no calls in it; this is the page
+      that lists them. Verified 2026-09-23.
+
+  - name: Open Technology Fund
+    url: https://www.opentech.fund/funds/
+    cadence: monthly
+    notes: >
+      open-source infrastructure and internet freedom, the same lane as
+      Alpha-Omega and Sovereign Tech. Verified 2026-09-23.
+
+  - name: NLnet Foundation
+    url: https://nlnet.nl/funding.html
+    cadence: weekly
+    notes: >
+      NOT US-based (Netherlands). Kept anyway: it funds open source work
+      wherever it happens, the grants are small and fast, and it runs
+      back-to-back open calls with a deadline on the 3rd of every odd month
+      stated on the page. Surfaced by the GrantForward export, not by any
+      curated list -- nothing else here would have found it. Verified 2026-09-23.
+
+  - name: Grand Challenges (Gates Foundation)
+    url: https://gcgh.grandchallenges.org/grant-opportunities
+    cadence: weekly
+    notes: >
+      the fetchable half of Gates, and the only half. Their own
+      /about/how-we-work/grant-opportunities renders the RFP list client-side:
+      it strips to 1,011 chars that stop dead at "Request for proposals (RFP):",
+      which is OVER the MIN_PAGE_TEXT floor and still contains no calls, so it
+      would report healthy and empty indefinitely. Left out on purpose.
+      /about/committed-grants is past grants -- the Kavli "Funded Work" mistake.
+      This page is server-rendered and real, but strips to only ~700 chars, close
+      enough to the 500 floor that a redesign will trip it. Verified 2026-09-23.
+
+  # Corporate research awards and compute credits. A different instrument from a
+  # grant: usually an unrestricted gift, or cloud/GPU/quantum time rather than
+  # cash, and typically at 0% indirect, so campus routing differs. That is what
+  # `indirect_cap` is for, and it is why these read oddly in a money-sorted
+  # digest. Annual cycles, so monthly cadence is enough.
+
+  - name: Google Academic Research Awards
+    url: https://research.google/programs-and-events/google-academic-research-awards/
+    cadence: monthly
+    notes: >
+      research.google/ is a corporate homepage with no calls on it and
+      /programs-and-events/ is a hub of prose; this is the page that actually
+      lists the cycle's RFPs, with synopses. Verified 2026-09-23.
+
+  - name: Amazon Research Awards
+    url: https://www.amazon.science/research-awards
+    cadence: monthly
+    notes: 43k chars, the whole programme on one page. Verified 2026-09-23.
+
+  - name: NVIDIA Academic Grant Program
+    url: https://www.nvidia.com/en-us/industries/higher-education-research/academic-grant-program/
+    cadence: monthly
+    notes: GPU time and credits rather than cash. Verified 2026-09-23.
+
+  - name: Microsoft Research Academic Programs
+    url: https://www.microsoft.com/en-us/research/academic-programs/
+    cadence: monthly
+    notes: Verified 2026-09-23.
+
+  - name: IonQ Research Credits
+    url: https://ionq.com/programs/research-credits/call-for-proposals
+    cadence: monthly
+    notes: >
+      up to $10,000 of quantum compute time, not money. Surfaced by the
+      GrantForward export. Verified 2026-09-23.
+
+  # Individual call pages surfaced by GrantForward exports, 2026-09-23, all
+  # with Status=Continuous (a standing programme at a stable URL). An Open row
+  # points at one cycle and 404s when it closes, so those are read, not
+  # pinned. Non-US funders are flagged; they are kept when the work they fund
+  # is work this group does.
+
+  - name: "Google Cloud Academic Research Grants"
+    url: https://edu.google.com/programs/credits/research/
+    cadence: monthly
+    notes: >
+      cloud credits rather than cash. 10,140 chars.
+
+  - name: "G-Research Grants for Early Career Researchers"
+    url: https://www.gresearch.com/nextgen/grants/
+    cadence: monthly
+    notes: >
+      4,968 chars.
+
+  - name: "CSCS - Small Projects (Swiss National Supercomputing Centre)"
+    url: https://www.cscs.ch/user-lab/allocation-schemes/small-projects
+    cadence: monthly
+    notes: >
+      NOT US. HPC allocations, not money. Kept because compute allocation
+      calls are the same shape of opportunity as a grant for this group.
+
+  - name: "CSCS - Development Projects"
+    url: https://www.cscs.ch/user-lab/allocation-schemes/development-projects
+    cadence: monthly
+    notes: >
+      NOT US. 4,897 chars.
+
+  - name: "Simons Institute for the Theory of Computing - Circles"
+    url: https://simons.berkeley.edu/participate/circles-call-proposals
+    cadence: monthly
+    notes: >
+      3,312 chars.
+
+  - name: "Intuitive Foundation - da Vinci Research Kit"
+    url: https://www.intuitive-foundation.org/dvrk/
+    cadence: monthly
+    notes: >
+      4,120 chars. Hardware and robotics research.
+
+  - name: "DFG - Research Data (LIS)"
+    url: https://www.dfg.de/en/research-funding/funding-opportunities/programmes/infrastructure/lis/funding-opportunities/research-data
+    cadence: monthly
+    notes: >
+      NOT US (Germany). Research data infrastructure -- squarely this
+      group's lane, and worth watching for collaborators even where we
+      cannot be PI.
+
+  - name: "DFG - e-Research Technologies"
+    url: https://www.dfg.de/en/research-funding/funding-opportunities/programmes/infrastructure/lis/funding-opportunities/e-research-technologies
+    cadence: monthly
+    notes: >
+      NOT US (Germany).
+
+  - name: "DFG - New Instrumentation for Research"
+    url: https://www.dfg.de/en/research-funding/funding-opportunities/programmes/infrastructure/scientific-instrumentation/funding-opportunities/new-instrumentation
+    cadence: monthly
+    notes: >
+      NOT US (Germany).
+
+  - name: "Volkswagen Foundation - Data Reuse"
+    url: https://www.volkswagenstiftung.de/en/funding/funding-offer/data-reuse-additional-funding-preparation-and-storage-research-data-open-science
+    cadence: monthly
+    notes: >
+      NOT US (Germany). Funding to prepare and store research data for open
+      science: the data-curation lane exactly. 18,336 chars.
+
+  - name: "Anthropic - Economic Futures Research"
+    url: https://www.anthropic.com/news/economic-futures-research-fund-agenda
+    cadence: monthly
+    notes: >
+      12,483 chars. A corporate research fund, published as a news post, so
+      the URL may move without a redirect.
+
+# ---------------------------------------------------------------------------
+# Sitemap-expanded sources.
+#
+# Some funders publish a listing their visitors can read but a fetcher cannot.
+# Wellcome's schemes page strips to 1,947 chars of filter chrome around the text
+# "Showing 13 results of 13", and not one of those 13 titles exists anywhere in
+# its 141,861 chars of HTML. The individual scheme pages are plain server-
+# rendered HTML; the sitemap is how you learn which ones exist.
+#
+# Listing those pages by hand does not work either, because they churn: 63 of
+# Wellcome's 112 scheme pages are already closed, and RWJF stamps the year into
+# every call URL. A hand-pinned set is majority-dead within a year, needs a
+# human to prune each 404, and never sees a scheme published next week.
+#
+# So what is pinned and reviewed here is the RULE, not the URL list. It stays
+# bounded three ways -- one domain, one include, one exclude -- and `max` is a
+# hard refusal, not a truncation: gatesfoundation.org/sitemap_grants.xml lists
+# 41,507 committed grants, and one loose `include` without a ceiling would be
+# tens of thousands of fetches and model calls in a single night.
+#
+# Health is recorded per funder, so zero_streak means something: "Wellcome
+# yielded nothing three runs running" is a real signal, where 45 separate rows
+# would be noise. Check a rule still matches after a site redesign with:
+#   python scripts/probe_sources.py --sitemap <url> --grep <include>
+# ---------------------------------------------------------------------------
+sitemaps:
+  - name: Wellcome
+    sitemap: https://wellcome.org/sitemap.xml
+    include: '/research-funding/schemes/'
+    exclude: '-closed$|check-your-eligibility'
+    cadence: weekly
+    max: 150
+    notes: >
+      112 scheme pages, 49 live. A closed scheme 404s because Wellcome moves it
+      to a -closed slug, so a few per-page failures are the healthy steady
+      state; all of them failing is not, and sitemap_pages raises on that.
+      Verified 2026-09-23.
+
+  - name: RWJF
+    sitemap: https://www.rwjf.org/sitemap.xml
+    include: 'active-funding-opportunities/20\d\d/'
+    cadence: weekly
+    max: 60
+    notes: >
+      the listing itself is 7k of chrome with the calls loaded client-side; the
+      individual year-stamped call pages render at 11k-18k. Do NOT loosen this
+      to /grants/: 174 URLs under it are grantee STORIES, which are past work.
+      Verified 2026-09-23.
+
+  - name: Cisco Research
+    sitemap: https://research.cisco.com/sitemap.xml
+    include: '/open-rfps/.+'
+    cadence: weekly
+    max: 60
+    notes: >
+      both the index (/open-rfps, 507 chars) and the NUMBERED call pages
+      (/open-rfps/29, 34 chars) are JavaScript shells, so the numeric URLs a
+      GrantForward export gives you are useless; only these slug URLs render.
+      Partial coverage: the sitemap lists 4 of the 13 RFPs GrantForward knows
+      about. Research gifts, not grants. Verified 2026-09-23.

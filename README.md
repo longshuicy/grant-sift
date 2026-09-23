@@ -1,9 +1,9 @@
 # Grant Sift
 
-Funding signal for a research software group. It reads Grants.gov, NSF, sixteen
-foundation pages and an RSS feed, scores each call for RSE relevance against a
-roster of past collaborators, and puts the result in a dashboard and a set of
-email digests.
+Funding signal for a research software group. It reads Grants.gov, 36 foundation
+and corporate-award pages, three sitemap-expanded funders and an RSS feed, scores
+each call for RSE relevance against a roster of past collaborators, and puts the
+result in a dashboard and a set of email digests.
 
 The point is not to find the obvious cyberinfrastructure calls. Everyone sees
 those, which is why they are crowded. It is to find the domain solicitation
@@ -73,10 +73,12 @@ flowchart TD
     SL --> A2
     SL --> A3
     SL --> A4
+    SL --> A5
     A1["Grants.gov search2<br/>31 query terms"] --> E
     A2["NSF funding search"] --> E
     A3["RSS feed"] --> SC
     A4["foundation pages<br/>stripped to text"] --> X
+    A5["sitemap rules<br/>one pinned sitemap,<br/>expanded to call pages"] --> X
     X["EXTRACT<br/>model lists the open calls"] --> SC
     E["ENRICH<br/>per-call detail fetch:<br/>description, award, deadline"] --> SC
     SC["SCREEN<br/>annotates only.<br/>Discards nothing"] --> S[("SQLite")]
@@ -101,9 +103,19 @@ static file, so nothing user-facing depends on the gateway being up. The chat
 proxy and Idea match (`/api/focus`, `/api/rescore`) are the exceptions: both
 run on the viewer’s own key and degrade to a disabled control without one.
 
-**Nothing is discovered by following links.** Sources come from
-`config/sources.yaml` and nowhere else. That is the difference between a tool
-you maintain in an afternoon and a crawler you maintain forever.
+**Sources are pinned, not crawled.** Nothing is discovered by following links
+out of a page; everything comes from `config/sources.yaml`. That is the
+difference between a tool you maintain in an afternoon and a crawler you
+maintain forever.
+
+The one expansion is `sitemaps:`, for funders whose listing page is a JavaScript
+shell their own visitors can read but a fetcher cannot. There the reviewed thing
+is a rule rather than a URL list — one domain, one include pattern, one exclude
+pattern, one hard `max` — and it exists because those pages churn: 63 of
+Wellcome's 112 scheme pages are already closed, so a hand-pinned set is
+majority-dead within a year. `max` refuses rather than truncates; Gates
+publishes a sitemap of 41,507 committed grants, and a silently shortened list is
+the failure this tool exists to avoid.
 
 ## Nothing fetched is thrown away
 

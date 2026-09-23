@@ -253,8 +253,8 @@ def merge_sources(sources, conn, verbose=True):
     would independently report itself healthy.
     """
     merged = dict(sources)
-    have = {db._dedup_key(p.get("url", ""))
-            for key in ("foundations", "feeds")
+    have = {db._dedup_key(p.get("url", "") or p.get("sitemap", ""))
+            for key in ("foundations", "feeds", "sitemaps")
             for p in (sources.get(key) or [])}
     added = {"foundations": [], "feeds": []}
     for entry in db.source_additions(conn):
@@ -282,6 +282,14 @@ def ingest(conn, sources, prefilter, verbose=True):
     def run(name, kind, url, fn):
         try:
             records = fn()
+            # None means "the page had not moved, so we did not read it", which
+            # is different from [] ("we read it and there were no calls"). Only
+            # the second is evidence about the source's health.
+            if records is None:
+                db.record_source_run(conn, name, kind, url, True, 0, unchanged=True)
+                if verbose:
+                    print(f"  {name:38s}    - unchanged", flush=True)
+                return
             records = adapters.drop_expired(records)
             stats["fetched"] += len(records)
             kept = 0
@@ -323,7 +331,18 @@ def ingest(conn, sources, prefilter, verbose=True):
         if not _due(conn, page):
             continue
         run(page["name"], "page", page["url"],
-            lambda p=page: adapters.foundation_page(conn, p["name"], p["url"]))
+            lambda p=page: adapters.foundation_page(
+                conn, p["name"], p["url"], min_text=p.get("min_text")))
+
+    # One pinned sitemap, expanded into the call pages it lists. Health is
+    # recorded per FUNDER, not per page: 45 rows in `sources` for one funder
+    # makes zero_streak meaningless, while one row makes it say something
+    # useful -- "Wellcome has yielded nothing three runs running".
+    for site in sources.get("sitemaps", []):
+        if not _due(conn, site):
+            continue
+        run(site["name"], "sitemap", site["sitemap"],
+            lambda c=site: adapters.sitemap_pages(conn, c))
 
     # Off unless asked for. Nothing fetched is thrown away by default.
     prune_days = os.environ.get("GRANT_SIFT_PRUNE_DAYS")
